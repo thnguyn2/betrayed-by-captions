@@ -77,6 +77,27 @@ We conduct extensive experiments on the COCO dataset with two settings: Open Voc
     pip install -r requirements.txt
 
     ```
+3. Install on PathAI cluster
+- Initialize a 8-GPU pod using the `fm-dev` image, not **Jupyterhub**.
+  ```
+  conda create --name betray python=3.10 -y
+  conda activate betray
+  pip install -r requirements.txt
+  python3 -m spacy download en_core_web_sm
+  pip install yapf==0.40.1  # Avoid https://github.com/open-mmlab/mmdetection/issues/10962 
+
+  conda install cudatoolkit=11.7 -c pytorch
+  pip install https://download.pytorch.org/whl/cu117/torch-2.0.1%2Bcu117-cp310-cp310-linux_x86_64.whl
+  pip install https://download.pytorch.org/whl/cu117/torch-2.0.1%2Bcu117-cp310-cp310-linux_x86_64.whl
+  pip install https://download.pytorch.org/whl/cu117/torchvision-0.15.2%2Bcu117-cp310-cp310-linux_x86_64.whl#sha256=1ee57f2bee878ad8574ea559bb7172c1cfaad168634fa738479e1fe3bdd7eaca
+  conda install -c conda-forge cudatoolkit-dev
+  pip install -U opencv-python
+
+  pip install setuptools==69.5.1  
+  pip install mmcv-full==1.7.1  # will take a 20-30 mins
+  pip install git+https://github.com/cocodataset/panopticapi.git
+  pip install mmdet==2.28.2
+  ```
 
 ## Get Started
 ### Prepare pretrained models
