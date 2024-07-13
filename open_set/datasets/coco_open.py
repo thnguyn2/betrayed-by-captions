@@ -47,7 +47,7 @@ class CocoDatasetOpen(CustomDataset):
                'mouse', 'remote', 'keyboard', 'cell phone', 'microwave',
                'oven', 'toaster', 'sink', 'refrigerator', 'book', 'clock',
                'vase', 'scissors', 'teddy bear', 'hair drier', 'toothbrush')
-
+    
     PALETTE = [(220, 20, 60), (119, 11, 32), (0, 0, 142), (0, 0, 230),
                (106, 0, 228), (0, 60, 100), (0, 80, 100), (0, 0, 70),
                (0, 0, 192), (250, 170, 30), (100, 170, 30), (220, 220, 0),
@@ -162,6 +162,10 @@ class CocoDatasetOpen(CustomDataset):
         self.cat2label = {cat_id: i for i, cat_id in enumerate(self.known_cat_ids)}
 
         self.img_ids = self.coco.get_img_ids()
+        
+        # Hack to reduce the training size
+        self.img_ids = self.img_ids[:100]
+        
         data_infos = []
         total_ann_ids = []
         for i in self.img_ids:

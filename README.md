@@ -96,7 +96,7 @@ We conduct extensive experiments on the COCO dataset with two settings: Open Voc
   pip install setuptools==69.5.1  
   pip install mmcv-full==1.7.1  # will take a 20-30 mins
   pip install git+https://github.com/cocodataset/panopticapi.git
-  pip install mmdet==2.28.2
+  pip install mmdet==2.28.2 scikit-image shapely
   ```
 
 ## Get Started
