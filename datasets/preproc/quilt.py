@@ -19,7 +19,8 @@ def _generate_dataset() -> None:
     _ROOT_FOLDER = Path("/jupyter-users-home/tan-2enguyen/datasets/pathology/quilt1m")
     
     dir_by_name = _create_output_dataset_folders(target_folder_path=_ROOT_FOLDER / "quilt_coco")
-    image_infos = []
+    train_image_infos = []
+    val_image_infos = []
     train_annotations = []
     val_annotations = []
     image_id = 1
@@ -27,27 +28,29 @@ def _generate_dataset() -> None:
     
     IMG_FOLDER = _ROOT_FOLDER / "images"
     df = pd.read_csv(_ROOT_FOLDER / "quilt_1M_lookup.csv")
+    
+    # Keep the resolution high.
+    df = df[df.magnification > 1.0]
+    
     for row in tqdm(df.iterrows()):
         image_meta = row[1]
         image_name = image_meta.image_path
         full_image_path = IMG_FOLDER / image_name
-        if full_image_path.exists() and not math.isnan(image_meta.magnification) and image_meta.magnification > 0.0:
+        if full_image_path.exists() and not math.isnan(image_meta.magnification):
             im = Image.open(full_image_path)
             target_file_name = f"{image_id}.jpg"
             im.convert('RGB').save(dir_by_name['image_dir'] / target_file_name)
-
-            image_infos.append({
-                "license": 1,
-                "file_name": target_file_name,
-                "coco_url": "",
-                "height": im.size[1],
-                "width": im.size[0],
-                "date_captured": "",
-                "flickr_url": "",
-                "id": image_id,
-            })
-            
             if image_meta.split == "train":
+                train_image_infos.append({
+                    "license": 1,
+                    "file_name": target_file_name,
+                    "coco_url": "",
+                    "height": im.size[1],
+                    "width": im.size[0],
+                    "date_captured": "",
+                    "flickr_url": "",
+                    "id": image_id,
+                })
                 train_annotations.append(
                     {
                         "image_id": image_id,
@@ -56,11 +59,21 @@ def _generate_dataset() -> None:
                     }
                 )
             else:
+                val_image_infos.append({
+                    "license": 1,
+                    "file_name": target_file_name,
+                    "coco_url": "",
+                    "height": im.size[1],
+                    "width": im.size[0],
+                    "date_captured": "",
+                    "flickr_url": "",
+                    "id": image_id,
+                })
                 val_annotations.append(
                     {
                         "image_id": image_id,
                         "id": caption_id,
-                        "caption": image_meta.corrected_text if isinstance(image_meta.corrected_text, str) else image_meta.caption,
+                        "caption": image_meta.caption, #image_meta.corrected_text if isinstance(image_meta.corrected_text, str) else image_meta.caption,
                     }
                 )
             image_id += 1
@@ -69,7 +82,7 @@ def _generate_dataset() -> None:
     train_dataset_meta: Dict[str, Any] = {
         "info": _create_dataset_info(),
         "licenses": _create_dataset_license_info(),
-        "images": image_infos,  
+        "images": train_image_infos,  
         "annotations": train_annotations,
     }
     train_json_object = json.dumps(train_dataset_meta)
@@ -80,7 +93,7 @@ def _generate_dataset() -> None:
     val_dataset_meta: Dict[str, Any] = {
         "info": _create_dataset_info(),
         "licenses": _create_dataset_license_info(),
-        "images": image_infos,  
+        "images": val_image_infos,  
         "annotations": val_annotations,
     }
     val_json_object = json.dumps(val_dataset_meta)
