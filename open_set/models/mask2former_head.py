@@ -640,24 +640,19 @@ class Mask2FormerHeadOpen(MaskFormerHead):
 
         return loss_cls, loss_cls_emb, loss_grounding, loss_caption_generation, loss_caption_align, loss_mask, loss_dice 
 
-    def _get_cls_emb_logits(self, cls_emb_preds):
+    def _get_cls_emb_logits(self, cls_emb_preds: torch.Tensor) -> torch.Tensor:
         """Compute prediction logits for embedding predicion head. 
 
         Args:
-            cls_emb_preds (Tensor): Embedding prediction for a single decoder
-                layer for all images. Shape
-                (batch_size, num_queries, d_l).
+            cls_emb_preds: A tensor of (batch_size, num_queries, d_l) that stores class embedding prediction for a single decoder for all images.
             
         Returns:
-            cls_emb_logits (Tensor): Embedding predicion scores.
+            cls_emb_logits: Embedding predicion scores.
                 (batch_size, num_queries, self.num_classes + 1).
         """
         # (batch_size, num_queries, d_l) * (d_l, self.num_classes) ->
         # (batch_size, num_queries, self.num_classes)
-        logits = torch.matmul(cls_emb_preds, self.class_embs.t()) / self.softmax_temperature
-        # print("logits, ", logits.shape)
-
-        return logits
+        return torch.matmul(cls_emb_preds, self.class_embs.t()) / self.softmax_temperature
 
     def gather_captions_and_preds(self, gt_caption_embs_list, gt_caption_mask_list, cls_emb_preds):
         """Gather all caption annotations from the whole batch using dist.all_gather. 

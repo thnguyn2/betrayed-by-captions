@@ -1,10 +1,10 @@
 """A module that defines a custom dataset for pathology grounding."""
 import mmcv
 from mmdet.datasets.builder import DATASETS
-from mmdet.datasets.custom import CustomDataset
 from typing import Dict, List, Optional
 from mmdet.datasets.api_wrappers import COCO
 from .coco_open import CocoDatasetOpen
+import transformers
 
 @DATASETS.register_module()
 class PathGroundOpen(CocoDatasetOpen):
@@ -48,11 +48,11 @@ class PathGroundOpen(CocoDatasetOpen):
         known_file: Optional[str]=None,
         unknown_file: Optional[str]=None,
         class_agnostic: bool=False,
-        emb_type: str ='bert',
         eval_types: List =[],
         ann_sample_rate: float=1.0,
         max_ann_per_image: int=100,
-        nouns_parser: str='med_lvis'
+        nouns_parser: str='med_lvis',
+        emb_type='bert',
     ) -> None:
         super().__init__(
             ann_file=ann_file,
@@ -76,3 +76,7 @@ class PathGroundOpen(CocoDatasetOpen):
             nouns_parser=nouns_parser,
         )
         
+        if emb_type == 'pubmed-bert':
+            # https://huggingface.co/lighteternal/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext-finetuned-mnli
+            self.max_tokens = 50
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained("lighteternal/BiomedNLP-PubMedBERT-base-uncased-abstract-fulltext-finetuned-mnli")

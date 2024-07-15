@@ -17,7 +17,7 @@ import mmcv
 import numpy as np
 from mmcv.utils import print_log
 from terminaltables import AsciiTable
-
+from typing import List, Set, Tuple
 from mmdet.core import eval_recalls
 from mmdet.datasets.api_wrappers import COCO
 from ..utils.eval.cocoeval import COCOeval
@@ -204,14 +204,14 @@ class CocoDatasetOpen(CustomDataset):
             # During training, randomly choose a caption as gt.
             random_idx = np.random.randint(0, len(caption_ann_info))
             caption = caption_ann_info[random_idx]["caption"]
-            unique_object_nouns = self.extract_obj(caption)
             data_info["caption"] = caption
-            data_info["caption_nouns"] = " ".join(unique_object_nouns)
+            data_info["caption_nouns"] = " ".join(self._extract_nouns_from_caption(caption))
         return self._parse_ann_info(data_info, ann_info)
 
-    def extract_obj(self, sentence):
+    def _extract_nouns_from_caption(self, caption: str) -> Set[str]:
+        """Returns a set of nouns in the caption."""
         unique_nns = []
-        nns, _ = self.parser.parse(sentence)
+        nns, _ = self.parser.parse(caption)
         unique_nns.extend(nns)
         unique_nns = list(set(unique_nns))
         return unique_nns
@@ -330,14 +330,22 @@ class CocoDatasetOpen(CustomDataset):
 
         return ann
 
-    def parse_caption(self, img_info):
+    def parse_caption(self, img_info) -> Tuple[List[int], List[int], List[int], List[int]]:
+        """Tokenize the caption and the sentence of nouns.
+        
+        Returns:
+            An array of token ids for the caption.
+            An attention mask for tokens for the caption.
+            An array of token ids for the sentence of nouns.
+            An attention mask for tokens of the sentence of nouns.
+        """
         caption_str = img_info['caption']
         caption_nouns = img_info['caption_nouns']
         padded_ids = [0] * self.max_tokens
         attention_mask = [0] * self.max_tokens
         padded_nouns_ids = [0] * self.max_tokens
         attention_nouns_mask = [0] * self.max_tokens
-        if self.emb_type == 'bert':
+        if self.emb_type in ('bert', 'pubmed-bert'):
             caption_ids = self.tokenizer.encode(caption_str, add_special_tokens=True)
             caption_ids = caption_ids[:self.max_tokens]
             padded_ids[:len(caption_ids)] = caption_ids
