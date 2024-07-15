@@ -1,5 +1,5 @@
-Neoplastic cells
+Neoplastic
 Inflammatory
-Connective/Soft tissue cells
-Dead Cells
+Connective
+Dead
 Epithelial

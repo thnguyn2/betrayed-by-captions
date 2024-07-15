@@ -8,7 +8,6 @@ from absl import logging
 import json
 from pathlib import Path
 import numpy as np
-import matplotlib.pyplot as plt
 from tqdm import tqdm
 from typing import Any, Dict, List
 from skimage import measure
@@ -16,10 +15,10 @@ from shapely.geometry import Polygon
 from PIL import Image
 
 _CLASS_NAMES_BY_IDS = {
-    1: "Neoplastic cells", 
+    1: "Neoplastic", 
     2: "Inflammatory", 
-    3: "Connective/Soft tissue cells", 
-    4: "Dead Cells", 
+    3: "Connective", 
+    4: "Dead", 
     5: "Epithelial", 
     6: "Background",
 }
@@ -184,7 +183,7 @@ def _create_sub_mask_annotations(class_id: int, image_id: int, starting_annotati
                     annotation_dicts.append(
                         {
                             'segmentation':  [segmentation_res,],  # [[XYXY...]],
-                            'is_crowd': 0,  # single object annotation
+                            'iscrowd': 0,  # single object annotation
                             'image_id': image_id,
                             'category_id': class_id,
                             'id': starting_annotation_id + valid_off_set_idx,

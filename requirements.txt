@@ -6,7 +6,9 @@ ftfy
 regex
 tqdm
 spacy
+medspaCy
 clip
-lvis
+lvis==3.7.5
+quickumls
 nltk
 git+https://github.com/cocodataset/panopticapi.git

@@ -8,6 +8,7 @@ import torch.nn.functional as F
 import torch.distributed as dist
 
 import transformers
+from typing import Dict, List
 import clip
 
 import mmcv
@@ -461,30 +462,41 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             num_dec_layer += 1
         return loss_dict
 
-    def loss_single(self, cls_scores, cls_emb_preds, mask_preds,
-                    gt_labels_list, gt_masks_list,
-                    gt_caption_ids_list, gt_caption_embs_list, gt_caption_mask_list,
-                    gt_caption_nouns_ids_list, gt_caption_nouns_embs_list, gt_caption_nouns_mask_list, img_metas):
+    def loss_single(
+        self, 
+        cls_scores: torch.Tensor, 
+        cls_emb_preds: torch.Tensor, 
+        mask_preds: torch.Tensor,
+        gt_labels_list: List[torch.Tensor], 
+        gt_masks_list: List[torch.Tensor],
+        gt_caption_ids_list: List[torch.Tensor], 
+        gt_caption_embs_list: List[torch.Tensor], 
+        gt_caption_mask_list: List[torch.Tensor],
+        gt_caption_nouns_ids_list, 
+        gt_caption_nouns_embs_list, 
+        gt_caption_nouns_mask_list, 
+        img_metas: List[Dict],
+        ):
         """Loss function for outputs from a single decoder layer.
 
         Args:
-            cls_scores (Tensor): Mask score logits from a single decoder layer
+            cls_scores: Mask score logits from a single decoder layer
                 for all images. Shape (batch_size, num_queries,
                 cls_out_channels). Note `cls_out_channels` should includes
                 background.
-            cls_emb_preds (Tensor): Embedding prediction for a single decoder
+            cls_emb_preds: Embedding prediction for a single decoder
                 layer for all images with shape (batch_size, num_queries, d_l).
                 d_l is the dimension of embeddings.
-            mask_preds (Tensor): Mask logits for a pixel decoder for all
+            mask_preds: Mask logits for a pixel decoder for all
                 images. Shape (batch_size, num_queries, h, w).
-            gt_labels_list (list[Tensor]): Ground truth class indices for each
+            gt_labels_list: Ground truth class indices for each
                 image, each with shape (num_gts, ).
-            gt_masks_list (list[Tensor]): Ground truth mask for each image,
+            gt_masks_list: Ground truth mask for each image,
                 each with shape (num_gts, h, w).
-            gt_caption_ids_list (list[Tensor]): (max_token,)
-            gt_caption_embs_list (list[Tensor]): (max_token, d_l)
-            gt_caption_mask_list (list[Tensor]): (max_token,)
-            img_metas (list[dict]): List of image meta information.
+            gt_caption_ids_list: (max_token,)
+            gt_caption_embs_list: (max_token, d_l)
+            gt_caption_mask_list: (max_token,)
+            img_metas: List of image meta information.
 
         Returns:
             tuple[Tensor]: Loss components for outputs from a single \
@@ -500,7 +512,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         mask_preds_list = [mask_preds[i] for i in range(num_imgs)]
         
         (labels_list, label_weights_list, mask_targets_list, mask_weights_list, 
-        num_total_pos, num_total_neg) = self.get_targets(cls_scores_list, cls_emb_logits_list, mask_preds_list,
+        num_total_pos, _) = self.get_targets(cls_scores_list, cls_emb_logits_list, mask_preds_list,
                                            gt_labels_list, gt_masks_list,
                                            img_metas)
 
@@ -849,10 +861,10 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         return cls_pred_list, cls_emb_pred_list, mask_pred_list
 
     def forward_train(self,
-                      feats,
-                      img_metas,
-                      gt_bboxes,
-                      gt_labels,
+                      feats: List[torch.Tensor],
+                      img_metas: List[Dict],
+                      gt_bboxes: List[torch.Tensor],
+                      gt_labels: List[torch.Tensor],
                       gt_masks,
                       gt_semantic_seg,
                       gt_caption_ids,
@@ -864,12 +876,12 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         """Forward function for training mode.
 
         Args:
-            feats (list[Tensor]): Multi-level features from the upstream
+            feats: Multi-level features from the upstream
                 network, each is a 4D-tensor.
-            img_metas (list[Dict]): List of image information.
-            gt_bboxes (list[Tensor]): Each element is ground truth bboxes of
+            img_metas: List of image information.
+            gt_bboxes: Each element is ground truth bboxes of
                 the image, shape (num_gts, 4). Not used here.
-            gt_labels (list[Tensor]): Each element is ground truth labels of
+            gt_labels: Each element is ground truth labels of
                 each box, shape (num_gts,).
             gt_masks (list[BitmapMasks]): Each element is masks of instances
                 of a image, shape (num_gts, h, w).

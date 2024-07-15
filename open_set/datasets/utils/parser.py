@@ -5,7 +5,10 @@ from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 
 import spacy
+import json
 import nltk
+from tqdm import tqdm
+from typing import List, Tuple
 from nltk.corpus import stopwords
 from nltk.tokenize import word_tokenize
 
@@ -116,20 +119,27 @@ class LVISParser():
 
         # print('lvis parser vocab size {}'.format(len(self.look_up)))
 
-    def parse(self, sentence):
+    def parse(self, sentence) -> Tuple[List[str], List[int]]:
+        """Converts the text lower case, lemmatization
+        
+        Returns:
+            A list of matched concept nouns.
+            A list of matched category ids.
+        """
         sentence = sentence.lower()
 
-        doc = self.nlp(sentence)
+        tokens = self.nlp(sentence)
         lemma_sentence = []
-        for token in doc:
+        for token in tokens:
             lemma_sentence.append(token.lemma_)
         lemma_sentence = ' '.join(lemma_sentence)
 
-        nns = []
-        category_ids = []
+        nns: List[str] = []
+        category_ids: List[int]= []
 
+        # Find matching with the concept in the look up
         for s in self.look_up:
-            if ' {} '.format(s) in lemma_sentence or lemma_sentence.startswith(s+' ') or lemma_sentence.endswith(' '+s) or lemma_sentence == s:
+            if f' {s} ' in lemma_sentence or lemma_sentence.startswith(s + ' ') or lemma_sentence.endswith(' ' + s) or lemma_sentence == s:
                 nns.append(s)
                 category_ids.append(self.look_up[s])
         
@@ -144,6 +154,19 @@ class LVISParser():
         
         return nns, category_ids
 
+class MedLVISParser(LVISParser):
+    def __init__(self, add_adj=False) -> None:
+        self.nlp = spacy.load("en_core_web_sm")
+        self.look_up = {}
+        with open("open_set/datasets/utils/quilt_categories.json", "r") as file:
+            quilt_categories = json.load(file)
+        self.class_names = ['']*len(quilt_categories)
+        self.add_adj = add_adj
+        
+        # Read about lemmalization at https://www.ibm.com/topics/stemming-lemmatization#:~:text=Stemming%20and%20lemmatization%20are%20text%20preprocessing%20techniques%20in%20natural%20language,%E2%80%9Clemma%E2%80%9D%20in%20computational%20linguistics.
+        self.look_up = {cat: cat_id for cat_id, cat in enumerate(quilt_categories)}
+        
+    
 class NLTKParser():
     def __init__(self, allowed_tags=['NN', 'NNS']):
         self.allowed_tags = allowed_tags

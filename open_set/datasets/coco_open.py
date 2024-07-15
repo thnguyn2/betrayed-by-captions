@@ -27,7 +27,7 @@ from ..utils.eval.caption.rouge.rouge import Rouge
 from mmdet.datasets.builder import DATASETS
 from mmdet.datasets.custom import CustomDataset
 
-from .utils.parser import LVISParser, NLTKParser, ImageNet21KParser
+from .utils.parser import LVISParser, NLTKParser, ImageNet21KParser, MedLVISParser
 
 
 @DATASETS.register_module()
@@ -118,6 +118,8 @@ class CocoDatasetOpen(CustomDataset):
             self.tokenizer = transformers.BertTokenizer.from_pretrained('bert-base-uncased')
         if nouns_parser == 'lvis':
             self.parser = LVISParser()
+        if nouns_parser == 'med_lvis':
+            self.parser = MedLVISParser()
         elif nouns_parser == 'nltk':
             self.parser = NLTKParser()
         elif nouns_parser == 'nouns_adj':
@@ -209,7 +211,7 @@ class CocoDatasetOpen(CustomDataset):
 
     def extract_obj(self, sentence):
         unique_nns = []
-        nns, category_ids = self.parser.parse(sentence)
+        nns, _ = self.parser.parse(sentence)
         unique_nns.extend(nns)
         unique_nns = list(set(unique_nns))
         return unique_nns
@@ -279,6 +281,7 @@ class CocoDatasetOpen(CustomDataset):
                 continue
             if ann['category_id'] not in self.cat_ids:
                 continue
+            
             # unknown has no annotations
             cat_id = ann['category_id']
             if cat_id not in self.all_cat_ids or cat_id in self.unknown_cat_ids:

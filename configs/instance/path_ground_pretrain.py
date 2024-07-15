@@ -193,46 +193,45 @@ img_norm_cfg = dict(
 pad_cfg = dict(img=(128, 128, 128), masks=0, seg=255)
 train_pipeline = [
     dict(type='LoadImageFromFile', to_float32=True),
-    # dict(type='LoadOpenAnnotations', with_bbox=True, with_mask=True, with_caption=True),
-    # dict(type='RandomFlip', flip_ratio=0.5),
-    # # large scale jittering
-    # dict(
-    #     type='Resize',
-    #     img_scale=image_size,
-    #     ratio_range=(0.1, 2.0),
-    #     multiscale_mode='range',
-    #     keep_ratio=True),
-    # dict(
-    #     type='RandomCrop',
-    #     crop_size=image_size,
-    #     crop_type='absolute',
-    #     recompute_bbox=True,
-    #     allow_negative_crop=True),
-    # dict(type='FilterAnnotations', min_gt_bbox_wh=(1e-5, 1e-5), by_mask=True),
-    # dict(type='Pad', size=image_size, pad_val=pad_cfg),
-    # dict(type='Normalize', **img_norm_cfg),
-    # dict(type='OpenFormatBundle', img_to_float=True),
-    # dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels', 'gt_masks',
-    #     'gt_caption_ids', 'gt_caption_mask', 'gt_caption_nouns_ids', 'gt_caption_nouns_mask']),
+    dict(type='LoadOpenAnnotations', with_bbox=True, with_mask=True, with_caption=True),
+    dict(type='RandomFlip', flip_ratio=0.5),
+    # large scale jittering
+    dict(
+        type='Resize',
+        img_scale=image_size,
+        ratio_range=(0.1, 2.0),
+        multiscale_mode='range',
+        keep_ratio=True),
+    dict(
+        type='RandomCrop',
+        crop_size=image_size,
+        crop_type='absolute',
+        recompute_bbox=True,
+        allow_negative_crop=True),
+    dict(type='FilterAnnotations', min_gt_bbox_wh=(1e-5, 1e-5), by_mask=True),
+    dict(type='Pad', size=image_size, pad_val=pad_cfg),
+    dict(type='Normalize', **img_norm_cfg),
+    dict(type='OpenFormatBundle', img_to_float=True),
+    dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels', 'gt_masks',
+        'gt_caption_ids', 'gt_caption_mask', 'gt_caption_nouns_ids', 'gt_caption_nouns_mask']),
 ]
 test_pipeline = [
     dict(type='LoadImageFromFile'),
-    # dict(
-    #     type='MultiScaleFlipAug',
-    #     img_scale=(1333, 800),
-    #     flip=False,
-    #     transforms=[
-    #         dict(type='Resize', keep_ratio=True),
-    #         dict(type='RandomFlip'),
-    #         dict(type='Pad', size_divisor=32, pad_val=pad_cfg),
-    #         dict(type='Normalize', **img_norm_cfg),
-    #         dict(type='ImageToTensor', keys=['img']),
-    #         dict(type='Collect', keys=['img']),
-    #     ])
+    dict(
+        type='MultiScaleFlipAug',
+        img_scale=(1333, 800),
+        flip=False,
+        transforms=[
+            dict(type='Resize', keep_ratio=True),
+            dict(type='RandomFlip'),
+            dict(type='Pad', size_divisor=32, pad_val=pad_cfg),
+            dict(type='Normalize', **img_norm_cfg),
+            dict(type='ImageToTensor', keys=['img']),
+            dict(type='Collect', keys=['img']),
+        ])
 ]
 dataset_type = 'PathGroundOpen'
-anno_ims_data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/pannuke/pannuke_coco/'
-caption_ims_data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/quilt1m/quilt_coco/'
+data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged/'
 
 data = dict(
     _delete_=True,
@@ -240,10 +239,9 @@ data = dict(
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,
-        ann_file=anno_ims_data_root + 'annotations/train_instances.json',
-        caption_ann_file=caption_ims_data_root + 'annotations/train_captions.json',
-        anno_img_prefix=anno_ims_data_root + 'images/',
-        caption_img_prefix=caption_ims_data_root + 'images/',
+        ann_file=data_root + 'annotations/train_instances.json',
+        caption_ann_file=data_root + 'annotations/train_captions.json',
+        img_prefix=data_root + 'images/',
         filter_empty_gt=False,
         transform_pipeline=train_pipeline,
         known_file=known_file,
@@ -252,10 +250,9 @@ data = dict(
         emb_type='bert'),
     val=dict(
         type=dataset_type,
-        ann_file=anno_ims_data_root + 'annotations/val_instances.json',
-        caption_ann_file=caption_ims_data_root + 'annotations/val_captions.json',
-        anno_img_prefix=anno_ims_data_root + 'images/',
-        caption_img_prefix=caption_ims_data_root + 'images/',
+        ann_file=data_root + 'annotations/val_instances.json',
+        caption_ann_file=data_root + 'annotations/val_captions.json',
+        img_prefix=data_root + 'images/',
         transform_pipeline=test_pipeline,
         known_file=known_file,
         unknown_file=unknown_file,
@@ -263,10 +260,9 @@ data = dict(
         eval_types=['all_results', 'novel_results', 'base_results'],),
     test=dict(
         type=dataset_type,
-        ann_file=anno_ims_data_root + 'annotations/val_instances.json',
-        caption_ann_file=caption_ims_data_root + 'annotations/val_captions.json',
-        anno_img_prefix=anno_ims_data_root + 'images/',
-        caption_img_prefix=caption_ims_data_root + 'images/',
+        ann_file=data_root + 'annotations/val_instances.json',
+        caption_ann_file=data_root + 'annotations/val_captions.json',
+        img_prefix=data_root + 'images/',
         transform_pipeline=test_pipeline,
         known_file=known_file,
         unknown_file=unknown_file,
