@@ -720,7 +720,7 @@ class CocoDatasetOpen(CustomDataset):
             if tmp_dir is not None:
                 tmp_dir.cleanup()
                 
-        return None
+        return eval_results
 
     def save_results(self, results):
         embedding_results = []

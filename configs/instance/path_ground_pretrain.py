@@ -175,7 +175,7 @@ model = dict(
                 type='DiceCost', weight=5.0, pred_act=True, eps=1.0)),
         sampler=dict(type='MaskPseudoSampler')),
     test_cfg=dict(
-        eval_types=['all_results', 'novel_results', 'base_results'],
+        eval_types=['base_results'],
         # max_per_image is for instance segmentation.
         max_per_image=100,
         iou_thr=0.8,
@@ -257,7 +257,7 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['all_results', 'novel_results', 'base_results'],),
+        eval_types=['base_results'],),
     test=dict(
         type=dataset_type,
         ann_file=data_root + 'annotations/val_instances.json',
@@ -267,7 +267,7 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['all_results', 'novel_results', 'base_results'],),
+        eval_types=['base_results'],),
     )
 
 embed_multi = dict(lr_mult=1.0, decay_mult=0.0)
