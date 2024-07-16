@@ -176,6 +176,7 @@ class MaskFormerOpen(SingleStageDetector):
         feats = self.extract_feat(imgs)
         assigned_labels, mask_cls_emb_results, mask_pred_results, caption_generation_results, att = \
             self.panoptic_head.simple_test(feats, img_metas, **kwargs)
+        
         results = self.panoptic_fusion_head.simple_test(
             assigned_labels, mask_cls_emb_results, mask_pred_results, img_metas, **kwargs)
 

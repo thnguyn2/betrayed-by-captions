@@ -256,7 +256,9 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['all_results', 'novel_results', 'base_results'],),
+        eval_types=['all_results', 'novel_results', 'base_results'],
+        use_reduced_size_dataset=True,
+    ),
     test=dict(
         type=dataset_type,
         ann_file=data_root + 'annotations/instances_val2017.json',
@@ -265,7 +267,9 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['all_results', 'novel_results', 'base_results'],))
+        eval_types=['all_results', 'novel_results', 'base_results'],
+        use_reduced_size_dataset=True,
+    ))
 
 embed_multi = dict(lr_mult=1.0, decay_mult=0.0)
 # optimizer

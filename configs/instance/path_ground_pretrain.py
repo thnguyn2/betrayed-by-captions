@@ -11,6 +11,7 @@ num_known_classes = num_classes - num_unknown_classes
 known_file = f'./datasets/unknown/known_{num_classes}.txt'
 unknown_file = f'./datasets/unknown/unknown_{num_unknown_classes}.txt'
 class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb.json'
+embeding_type = 'pubmed-bert'
 
 model = dict(
     type='Mask2FormerOpen',
@@ -110,7 +111,7 @@ model = dict(
         loss_cls=dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
-            loss_weight=0.0,
+            loss_weight=1.0,
             reduction='mean',
             class_weight=[1.0] * num_known_classes + [0.1]),
         loss_cls_emb=dict(
@@ -149,8 +150,8 @@ model = dict(
         softmax_temperature=10,
         pred_emb_norm=False,
         text_emb_norm=True,
-        caption_emb_type='pubmed-bert',
-        caption_gen_emb_type='pubmed-bert'),
+        caption_emb_type=embeding_type,
+        caption_gen_emb_type=embeding_type),
     panoptic_fusion_head=dict(
         type='MaskFormerFusionHeadOpen',
         num_things_classes=num_classes,
@@ -230,40 +231,65 @@ test_pipeline = [
             dict(type='Collect', keys=['img']),
         ])
 ]
+
 dataset_type = 'PathGroundOpen'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged/'
 
+# dataset_type = 'CocoDatasetOpen'
+# data_root = '/jupyter-users-home/tan-2enguyen/datasets/detectron2/coco/'
+
 data = dict(
     _delete_=True,
-    samples_per_gpu=2,
-    workers_per_gpu=2,
+    samples_per_gpu=3,
+    workers_per_gpu=3,
     train=dict(
         type=dataset_type,
+        
+        # ann_file=data_root + 'annotations/instances_train2017.json',
+        # caption_ann_file=data_root + 'annotations/captions_train2017.json',
+        # img_prefix=data_root + 'train2017/',
+        # pipeline=train_pipeline,
+        
         ann_file=data_root + 'annotations/train_instances.json',
         caption_ann_file=data_root + 'annotations/train_captions.json',
         img_prefix=data_root + 'images/',
-        filter_empty_gt=False,
         transform_pipeline=train_pipeline,
+        
+        filter_empty_gt=False,
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        emb_type='pubmed-bert'),
+        emb_type=embeding_type),
     val=dict(
         type=dataset_type,
+        
+        # ann_file=data_root + 'annotations/instances_val2017.json',
+        # caption_ann_file=data_root + 'annotations/captions_val2017.json',
+        # img_prefix=data_root + 'val2017/',
+        # pipeline=test_pipeline,
+        
         ann_file=data_root + 'annotations/val_instances.json',
         caption_ann_file=data_root + 'annotations/val_captions.json',
         img_prefix=data_root + 'images/',
         transform_pipeline=test_pipeline,
+        
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
         eval_types=['base_results'],),
     test=dict(
         type=dataset_type,
+        
+        # ann_file=data_root + 'annotations/instances_val2017.json',
+        # caption_ann_file=data_root + 'annotations/captions_val2017.json',
+        # img_prefix=data_root + 'val2017/',
+        # pipeline=test_pipeline,
+        
         ann_file=data_root + 'annotations/val_instances.json',
         caption_ann_file=data_root + 'annotations/val_captions.json',
         img_prefix=data_root + 'images/',
         transform_pipeline=test_pipeline,
+        
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,

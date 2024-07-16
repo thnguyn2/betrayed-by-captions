@@ -17,13 +17,13 @@ _DATASETS_IMG_FOLDERS_BY_NAME = {
 
 ANNOTATION_SPLITS_TO_MERGES = {
     'train': {
-        'Quilt': '/jupyter-users-home/tan-2enguyen/datasets/pathology/quilt1m/quilt_coco/annotations/train_captions.json',
         'PanNuke': '/jupyter-users-home/tan-2enguyen/datasets/pathology/pannuke/pannuke_coco/annotations/train_instances.json',
+        'Quilt': '/jupyter-users-home/tan-2enguyen/datasets/pathology/quilt1m/quilt_coco/annotations/train_captions.json',
     },
     
     'val': {
-        'Quilt': '/jupyter-users-home/tan-2enguyen/datasets/pathology/quilt1m/quilt_coco/annotations/train_captions.json',
         'PanNuke': '/jupyter-users-home/tan-2enguyen/datasets/pathology/pannuke/pannuke_coco/annotations/val_instances.json',
+        'Quilt': '/jupyter-users-home/tan-2enguyen/datasets/pathology/quilt1m/quilt_coco/annotations/train_captions.json',
     }
 }
 

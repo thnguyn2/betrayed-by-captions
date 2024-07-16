@@ -1,11 +1,11 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import torch
-
+from typing import Optional
 from mmdet.core.bbox.builder import BBOX_ASSIGNERS
 from mmdet.core.bbox.match_costs.builder import build_match_cost
 from mmdet.core.bbox.assigners.assign_result import AssignResult
 from mmdet.core.bbox.assigners.base_assigner import BaseAssigner
-
+from typing import Dict
 try:
     from scipy.optimize import linear_sum_assignment
 except ImportError:
@@ -45,48 +45,36 @@ class MaskHungarianAssignerOpen(BaseAssigner):
         self.cls_emb_cost = build_match_cost(cls_emb_cost)
             
     def assign(self,
-               cls_pred,
-               cls_emb_pred,
-               mask_pred,
-               gt_labels,
-               gt_mask,
-               img_meta,
+               cls_pred: Optional[torch.Tensor],
+               cls_emb_pred: torch.Tensor,
+               mask_pred: Optional[torch.Tensor],
+               gt_labels: torch.Tensor,
+               gt_mask: torch.Tensor,
+               img_meta: Dict,
                gt_bboxes_ignore=None,
-               eps=1e-7):
+               eps: Optional[float] = 1e-7) -> AssignResult:
         """Computes one-to-one matching based on the weighted costs.
 
         Args:
-            cls_pred (Tensor | None): Class prediction in shape
-                (num_query, cls_out_channels).
-            mask_pred (Tensor): Mask prediction in shape (num_query, H, W).
-            cls_emb_pred (Tensor | None): Embedding prediction logit in shape
-                (num_query, cls_out_channels).
-            gt_labels (Tensor): Label of 'gt_mask'in shape = (num_gt, ).
-            gt_mask (Tensor): Ground truth mask in shape = (num_gt, H, W).
-            gt_label_embeddings (Tensor): Ground truth class embeddings
-                in shsape = (num_gt, d_l).
-            img_meta (dict): Meta information for current image.
-            gt_bboxes_ignore (Tensor, optional): Ground truth bboxes that are
-                labelled as `ignored`. Default None.
-            eps (int | float, optional): A value added to the denominator for
-                numerical stability. Default 1e-7.
+            cls_pred: Class prediction in shape (num_query, cls_out_channels) for a single layer of a single image.
+            cls_emb_pred: Predicted class embedding logits in shape (num_query, cls_out_channels) for a single layer of a single image.
+            mask_pred: The (sampled) predicted mask logit in shape of (num_query, num_points) for a single layer of a single image.
+            gt_labels: Groundtruth label of 'gt_mask'in shape = (num_gt, ) one for each object in the image.
+            gt_mask: The (sampled) groundtruth mask in the shape of (num_queries, num_points).
+            img_meta: Meta information for current image.
+            eps: A value added to the denominator for numerical stability. Default 1e-7.
 
         Returns:
-            :obj:`AssignResult`: The assigned result.
+            The assigned result.
         """
-        assert gt_bboxes_ignore is None, \
-            'Only case when gt_bboxes_ignore is None is supported.'
+        assert gt_bboxes_ignore is None, 'Only case when gt_bboxes_ignore is None is supported.'
         # K-Net sometimes passes cls_pred=None to this assigner.
         # So we should use the shape of mask_pred
         num_gt, num_query = gt_labels.shape[0], mask_pred.shape[0]
 
         # 1. assign -1 by default
-        assigned_gt_inds = mask_pred.new_full((num_query, ),
-                                              -1,
-                                              dtype=torch.long)
-        assigned_labels = mask_pred.new_full((num_query, ),
-                                             -1,
-                                             dtype=torch.long)
+        assigned_gt_inds = mask_pred.new_full((num_query, ),-1, dtype=torch.long)
+        assigned_labels = mask_pred.new_full((num_query, ), -1, dtype=torch.long)
         if num_gt == 0 or num_query == 0:
             # No ground truth or boxes, return empty assignment
             if num_gt == 0:
@@ -108,10 +96,7 @@ class MaskHungarianAssignerOpen(BaseAssigner):
             cls_emb_cost = 0
 
         if self.mask_cost.weight != 0:
-            # mask_pred shape = [num_query, h, w]
-            # gt_mask shape = [num_gt, h, w]
-            # mask_cost shape = [num_query, num_gt]
-            mask_cost = self.mask_cost(mask_pred, gt_mask)
+            mask_cost = self.mask_cost(mask_pred, gt_mask)  # [num_query, num_gt]
         else:
             mask_cost = 0
 
@@ -129,10 +114,8 @@ class MaskHungarianAssignerOpen(BaseAssigner):
                               'to install scipy first.')
 
         matched_row_inds, matched_col_inds = linear_sum_assignment(cost)
-        matched_row_inds = torch.from_numpy(matched_row_inds).to(
-            mask_pred.device)
-        matched_col_inds = torch.from_numpy(matched_col_inds).to(
-            mask_pred.device)
+        matched_row_inds = torch.from_numpy(matched_row_inds).to(mask_pred.device)
+        matched_col_inds = torch.from_numpy(matched_col_inds).to(mask_pred.device)
 
         # 4. assign backgrounds and foregrounds
         # assign all indices to backgrounds first

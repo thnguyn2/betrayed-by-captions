@@ -4,14 +4,11 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-    
-
-
-        {
+       {
             "name": "generate-class-embd-from-categories",
             "type": "debugpy",
             "request": "launch",
-            "program": "/jupyter-users-home/tan-2enguyen/betrayed-by-captions/datasets/embeddings/_generate_class_embedding_for_path_ground_with_pubmed_bert.py",
+            "program": "/jupyter-users-home/tan-2enguyen/betrayed-by-captions/open_set/models/utils/_generate_class_embedding_for_path_ground_with_pubmed_bert.py",
             "console": "integratedTerminal",
             "justMyCode": false,
         },
@@ -52,6 +49,7 @@
             "args": [
                 "configs/instance/coco_b48n17.py",
                 "checkpoints/coco_instance_ag3x_1x.pth",
+                // "--show",
                 "--eval",
                 "bbox",
                 "segm"
@@ -93,6 +91,27 @@
                 "configs/instance/path_ground_pretrain.py",
             ],
             "justMyCode": false,
+        },
+        {
+            "name": "pretrain-path-ground-instance-seg-multi-gpu",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "torch.distributed.launch",
+            "console": "integratedTerminal",
+            "args": [
+                "--nnodes",
+                "1",
+                "--node_rank",
+                "0",
+                "--master_addr",
+                "127.0.0.1",
+                "--nproc_per_node",
+                "8",
+                "--master_port",
+                "29500",
+                "./tools/train.py",
+                "configs/instance/path_ground_pretrain.py",
+            ],
         },
         {
             "name": "pretrain-panoptic-seg-single-gpu",

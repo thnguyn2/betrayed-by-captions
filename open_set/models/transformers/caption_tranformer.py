@@ -33,7 +33,7 @@ class CaptionTransformer(nn.Module):
         )
         self.generator = nn.Linear(hidden_dim, nb_tokens)
     
-    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None, memory_key_padding_mask=None):
+    def forward(self, tgt: torch.Tensor, memory: torch.Tensor, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None, memory_key_padding_mask=None):
         memory = self.adapter(memory)
         tgt = self.position_encoder(tgt)
         if tgt_mask is None:

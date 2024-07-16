@@ -11,7 +11,8 @@ num_known_classes = num_classes - num_unknown_classes
 
 unknown_file = f'./datasets/unknown/unknown_p20.txt'
 class_to_emb_file = f'./datasets/embeddings/coco_panoptic_class_with_bert_emb.json'
-init_path = f'./pretrained/p20_ag_pretrain.pth'
+init_path = f'./pretrained/panoptic_p20_ag_pretrain.pth'
+
 
 model = dict(
     type='Mask2FormerOpen',
@@ -253,7 +254,9 @@ data = dict(
         img_prefix=data_root + 'val2017/',
         pipeline=test_pipeline,
         unknown_file=unknown_file,
-        class_agnostic=False),
+        class_agnostic=False,
+        use_reduced_size_dataset=True,
+        ),
     test=dict(
         type=dataset_type,
         ann_file=data_root + 'annotations/panoptic_val2017.json',
@@ -261,7 +264,9 @@ data = dict(
         img_prefix=data_root + 'val2017/',
         pipeline=test_pipeline,
         unknown_file=unknown_file,
-        class_agnostic=False))
+        class_agnostic=False,
+        use_reduced_size_dataset=True,
+        ))
 
 embed_multi = dict(lr_mult=1.0, decay_mult=0.0)
 # optimizer

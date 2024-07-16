@@ -6,10 +6,9 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Union
 
 import transformers
-from typing import Dict, List
 import clip
 
 import mmcv
@@ -28,6 +27,8 @@ from mmdet.models.dense_heads.maskformer_head import MaskFormerHead
 
 from ..utils.eval.inference import beam_search, get_ids_embedding
 from .utils.bert_embeddings import BertEmbeddings
+from open_set.models.utils.bert_embeddings import BERT_MODEL_BY_EMBEDDING_TYPES
+
 
 BOS_TOKEN = 101
 EOS_TOKEN = 102
@@ -160,13 +161,13 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                 'importance_sample_ratio', 0.75)
 
         self.class_weight = loss_cls.class_weight
-        self.loss_cls = build_loss(loss_cls)
+        self._loss_cls = build_loss(loss_cls)
         if loss_cls_emb is not None:
-            self.loss_cls_emb = build_loss(loss_cls_emb)
+            self._loss_cls_emb = build_loss(loss_cls_emb)
         if loss_grounding is not None:
-            self.loss_grounding = build_loss(loss_grounding)
+            self._loss_grounding = build_loss(loss_grounding)
         if loss_caption_generation is not None:
-            self.loss_caption_generation = build_loss(loss_caption_generation)
+            self._loss_caption_generation = build_loss(loss_caption_generation)
         if loss_caption_align is not None:
             self.loss_caption_align = build_loss(loss_caption_align)
         self.loss_mask = build_loss(loss_mask)
@@ -178,7 +179,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         self.kwargs = kwargs
         self.class_agnostic = kwargs.get('class_agnostic', False)
         self.use_class_emb = kwargs.get('use_class_emb', False)
-        self.use_caption = kwargs.get('use_caption', False)
+        self._use_caption = kwargs.get('use_caption', False)
         self.use_caption_generation = kwargs.get('use_caption_generation', False)
         self.use_caption_align = kwargs.get('use_caption_align', False)
         self.known_file = kwargs.get('known_file', None)
@@ -204,7 +205,8 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         if self.use_class_emb:
             class_to_emb_file = kwargs['class_to_emb_file']
             class_to_emb = mmcv.load(class_to_emb_file)
-            class_embs = torch.zeros((self.num_classes + 1, len(class_to_emb[0]['emb'])), dtype=torch.float)
+            class_embedding_dim = len(class_to_emb[0]['emb'])
+            class_embs = torch.zeros((self.num_classes + 1, class_embedding_dim), dtype=torch.float)
             i = 0
             # Copy the class embeddings from BERT to the head.
             for class_dict in class_to_emb:
@@ -218,15 +220,15 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                 i += 1
             # automatically to cuda
             self.register_buffer('class_embs', class_embs)
-            self.v2l_transform = nn.Linear(self.feat_channels, class_embs.shape[1])
+            self.v2l_transform = nn.Linear(self.feat_channels, class_embedding_dim)
         self.bert_embeddings = self.clip = None
-        if self.use_caption:
+        if self._use_caption:
             self.caption_emb_type = kwargs.get('caption_emb_type', 'clip')
-            self.build_text_encoders(self.caption_emb_type)
+            self._build_text_encoders(self.caption_emb_type)
         if self.use_caption_generation:
             self.caption_gen_emb_type = kwargs.get('caption_gen_emb_type', 'bert')
             self.caption_generator = build_head(self.caption_generator_cfg)
-            self.build_text_encoders(self.caption_gen_emb_type)
+            self._build_text_encoders(self.caption_gen_emb_type, normalize_word_embeddings=self.text_emb_norm)
         if self.learnable_temperature:
             self.softmax_temperature = nn.Parameter(torch.tensor([self.softmax_temperature]), requires_grad=True)
 
@@ -248,12 +250,20 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         if self.freeze_pretrained:
             self.freeze_params()
 
-    def build_text_encoders(self, emb_type):
-        if emb_type == 'bert' and self.bert_embeddings is None:
-            bert_model = transformers.BertModel.from_pretrained('bert-base-uncased').eval()
-            self.bert_embeddings = BertEmbeddings(bert_model)
+    def _build_text_encoders(self, emb_type: str, normalize_word_embeddings: bool=True) -> None:
+        """Builds a text encoder.
+        
+        Args:
+            emb_type: The type of embedding to use.
+        """
+        if emb_type in ('pubmed-bert', 'bert') and self.bert_embeddings is None:
+            self.bert_embeddings = BertEmbeddings(
+                bert_model=transformers.AutoModel.from_pretrained(BERT_MODEL_BY_EMBEDDING_TYPES[emb_type]).eval(),
+                normalize_word_embeddings=normalize_word_embeddings,
+            )
             for param in self.bert_embeddings.parameters():
                 param.requires_grad = False
+                
         if emb_type == 'clip' and self.clip is None:
             # clip_model, _ = clip.load('ViT-B/32')
             clip_model, _ = clip.load('RN50')
@@ -272,131 +282,98 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         for p in self.transformer_decoder.parameters():
             p.requires_grad = False
 
-    def get_targets(self, cls_scores_list, cls_emb_logits_list, mask_preds_list,
-                    gt_labels_list, gt_masks_list, img_metas):
-        """Compute classification and mask targets for all images for a decoder
-        layer.
+    def _get_targets_all_images_single_layer(self, cls_scores_list: List[torch.Tensor], cls_emb_logits_list: List[torch.Tensor], mask_preds_list: List[torch.Tensor],
+                gt_labels_list: List[torch.Tensor], gt_masks_list: List[torch.Tensor], img_metas: List[Dict]) -> Tuple[Union[torch.Tensor, int]]:
+        """Computes classification and mask targets for all images for a decoder layer.
 
         Args:
-            cls_scores_list (list[Tensor]): Mask score logits from a single
-                decoder layer for all images. Each with shape (num_queries,
-                cls_out_channels).
-            cls_emb_logits_list: (list[Tensor]): Embedding prediction logits for a single decoder
-                layer for all images with shape (num_queries, cls_out_channels).
-            mask_preds_list (list[Tensor]): Mask logits from a single decoder
-                layer for all images. Each with shape (num_queries, h, w).
-            gt_labels_list (list[Tensor]): Ground truth class indices for all
-                images. Each with shape (n, ), n is the sum of number of stuff
-                type and number of instance in a image.
-            gt_masks_list (list[Tensor]): Ground truth mask for each image,
-                each with shape (n, h, w).
-            img_metas (list[dict]): List of image meta information.
+            cls_scores_list: Mask score logits from a single decoder layer for all images. Each with shape (num_queries, cls_out_channels).
+            cls_emb_logits_list: Embedding prediction logits for a single decoder layer for all images with shape (num_queries, cls_out_channels).
+            mask_preds_list: Mask logits from a single decoder layer for all images. Each with shape (num_queries, h, w).
+            gt_labels_list: Ground truth class indices for all images. Each with shape (n, ), n is the sum of number of stuff type and number of instance in a image.
+            gt_masks_list: Ground truth mask for each image, each with shape (n, h, w).
+            img_metas: List of image meta information.
 
         Returns:
-            tuple[list[Tensor]]: a tuple containing the following targets.
-                - labels_list (list[Tensor]): Labels of all images.\
-                    Each with shape (num_queries, ).
-                - label_weights_list (list[Tensor]): Label weights\
-                    of all images. Each with shape (num_queries, ).
-                - mask_targets_list (list[Tensor]): Mask targets of\
-                    all images. Each with shape (num_queries, h, w).
-                - mask_weights_list (list[Tensor]): Mask weights of\
-                    all images. Each with shape (num_queries, ).
-                - num_total_pos (int): Number of positive samples in\
-                    all images.
-                - num_total_neg (int): Number of negative samples in\
-                    all images.
+            labels_list: Labels of all images, shape (batch_size, num_queries).
+            label_weights_list: Label weights of all images, shape (batch_size, num_queries).
+            mask_targets_list: Mask targets of all images, shape (batch_size, num_queries, h, w).
+            mask_weights_list: Mask weights of all images, shape (batch_size, num_querie ).
+            num_total_pos: Number of positive samples in all images, shape.
+            num_total_neg: Number of negative samples in all images, shape.
         """
-        (labels_list, label_weights_list, mask_targets_list, mask_weights_list,
-         pos_inds_list,
-         neg_inds_list) = multi_apply(self._get_target_single, cls_scores_list,
-                                      cls_emb_logits_list, mask_preds_list, gt_labels_list,
-                                      gt_masks_list, img_metas)
+        (labels_list, label_weights_list, mask_targets_list, mask_weights_list, pos_inds_list, neg_inds_list) = multi_apply(
+            self._get_target_single_image, cls_scores_list, cls_emb_logits_list, mask_preds_list, gt_labels_list, gt_masks_list, img_metas)
+        return (
+            torch.stack(labels_list, dim=0), 
+            torch.stack(label_weights_list, dim=0), 
+            torch.cat(mask_targets_list, dim=0),
+            torch.stack(mask_weights_list, dim=0), 
+            sum((inds.numel() for inds in pos_inds_list)),
+            sum((inds.numel() for inds in neg_inds_list)),
+        )
 
-        num_total_pos = sum((inds.numel() for inds in pos_inds_list))
-        num_total_neg = sum((inds.numel() for inds in neg_inds_list))
-        return (labels_list, label_weights_list, mask_targets_list,
-                mask_weights_list, num_total_pos, num_total_neg)
-
-
-    def _get_target_single(self, cls_score, cls_emb_logit, mask_pred,
-                           gt_labels, gt_masks, img_metas):
+    def _get_target_single_image(self, cls_score: torch.Tensor, cls_emb_logit: torch.Tensor, mask_pred: torch.Tensor,
+                        gt_labels: torch.Tensor, gt_masks: torch.Tensor, img_metas: Dict) -> Tuple[torch.Tensor]:
         """Compute classification and mask targets for one image.
 
         Args:
-            cls_score (Tensor): Mask score logits from a single decoder layer
-                for one image. Shape (num_queries, cls_out_channels).
-            cls_emb_logit (Tensor): Embedding prediction logit for a single decoder
-                layer for one image with shape (num_queries, cls_out_channels).
-            mask_pred (Tensor): Mask logits for a single decoder layer for one
-                image. Shape (num_queries, h, w).
-            gt_labels (Tensor): Ground truth class indices for one image with
-                shape (num_gts, ).
-            gt_masks (Tensor): Ground truth mask for each image, each with
-                shape (num_gts, h, w).  
-            img_metas (dict): Image informtation.
+            cls_score: Mask score logits from a single decoder layer for one image. Shape (num_queries, cls_out_channels).
+            cls_emb_logit: Embedding prediction logit for a single decoder layer for one image with shape (num_queries, cls_out_channels).
+            mask_pred: Mask logits for a single decoder layer for one image. Shape (num_queries, h, w).
+            gt_labels: Ground truth class indices for one image with shape (num_gts, ).
+            gt_masks: Ground truth mask for each image, each with shape (num_gts, h, w).  
+            img_metas: Image information.
 
         Returns:
-            tuple[Tensor]: A tuple containing the following for one image.
-
-                - labels (Tensor): Labels of each image. \
-                    shape (num_queries, ).
-                - label_weights (Tensor): Label weights of each image. \
-                    shape (num_queries, ).
-                - mask_targets (Tensor): Mask targets of each image. \
-                    shape (num_queries, h, w).
-                - mask_weights (Tensor): Mask weights of each image. \
-                    shape (num_queries, ).
-                - pos_inds (Tensor): Sampled positive indices for each \
-                    image.
-                - neg_inds (Tensor): Sampled negative indices for each \
-                    image.
+            labels: Labels of each image of shape (num_queries, ).
+            label_weights: Label weights of each image of shape (num_queries, ).
+            mask_targets: Mask targets of each image of shape (num_queries, h, w).
+            mask_weights: Mask weights of each image of shape (num_queries, ).
+            pos_inds: Sampled positive indices for each image.
+            neg_inds: Sampled negative indices for each image.
         """
         # sample points
         num_queries = cls_score.shape[0]
-        num_gts = gt_labels.shape[0]
-
-        point_coords = torch.rand((1, self.num_points, 2),
-                                  device=cls_score.device)
-        # shape (num_queries, num_points)
-        mask_points_pred = point_sample(
-            mask_pred.unsqueeze(1), point_coords.repeat(num_queries, 1,
-                                                        1)).squeeze(1)
-        # shape (num_gts, num_points)
-        gt_points_masks = point_sample(
-            gt_masks.unsqueeze(1).float(), point_coords.repeat(num_gts, 1,
-                                                               1)).squeeze(1)
-
-        # assign and sample
-        assign_result = self.assigner.assign(cls_score, cls_emb_logit, mask_points_pred,
-                                             gt_labels, gt_points_masks,
-                                             img_metas)
-        sampling_result = self.sampler.sample(assign_result, mask_pred,
-                                              gt_masks)
+        point_coords = torch.rand((1, self.num_points, 2), device=cls_score.device)
+        
+        # assign and sample    
+        sampling_result = self.sampler.sample(
+            self.assigner.assign(
+                cls_score, 
+                cls_emb_logit, 
+                point_sample(mask_pred.unsqueeze(1), point_coords.repeat(num_queries, 1, 1)).squeeze(1),  # shape (num_queries, num_points)
+                gt_labels,
+                point_sample(gt_masks.unsqueeze(1).float(), point_coords.repeat(gt_labels.shape[0], 1, 1)).squeeze(1),  # shape (num_gts, num_points)
+                img_metas,
+            ), 
+            mask_pred, 
+            gt_masks
+        )
+        
         pos_inds = sampling_result.pos_inds
-        neg_inds = sampling_result.neg_inds
-
+        
         # label target
-        labels = gt_labels.new_full((self.num_queries, ),
-                                    self.num_classes,
-                                    dtype=torch.long)
+        labels = gt_labels.new_full((self.num_queries, ), self.num_classes, dtype=torch.long)
         labels[pos_inds] = gt_labels[sampling_result.pos_assigned_gt_inds]
-        label_weights = gt_labels.new_ones((self.num_queries, ))
-
-        # mask target
-        mask_targets = gt_masks[sampling_result.pos_assigned_gt_inds]
+        
         mask_weights = mask_pred.new_zeros((self.num_queries, ))
         mask_weights[pos_inds] = 1.0
 
-        return (labels, label_weights, mask_targets, mask_weights, pos_inds,
-                neg_inds)
+        return (
+            labels, 
+            gt_labels.new_ones((self.num_queries,)), 
+            gt_masks[sampling_result.pos_assigned_gt_inds], 
+            mask_weights, 
+            pos_inds, 
+            sampling_result.neg_inds)
 
-    @force_fp32(apply_to=('all_cls_scores', 'all_mask_preds'))
+    @force_fp32(apply_to=('all_layer_cls_scores', 'all_layer_mask_preds'))
     def loss(
         self, 
-        all_cls_scores: List[torch.Tensor], 
+        all_layer_cls_scores: List[torch.Tensor], 
         all_cls_emb_preds: List[torch.Tensor], 
-        all_mask_preds: List[torch.Tensor], 
+        all_layer_mask_preds: List[torch.Tensor], 
         gt_labels_list: List[Optional[torch.Tensor]], 
         gt_masks_list: List[Optional[torch.Tensor]], 
         gt_caption_ids_list: List[torch.Tensor],
@@ -406,76 +383,68 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         gt_caption_nouns_embs_list: List[torch.Tensor], 
         gt_caption_nouns_mask_list: List[torch.Tensor], 
         img_metas
-        ):
+        ) -> Dict[str, float]:
         """Loss function.
 
         Args:
-            all_cls_scores: Classification scores for all decoder
+            all_layer_cls_scores: A list of classification scores for all decoder
                 layers. Each is a tensor with shape (batch_size, num_queries,
-                cls_out_channels). Note `cls_out_channels` should includes
-                background.
-            all_cls_emb_preds: Embedding prediction for all decoder
-                layers. Each is a tensor with shape (batch_size, num_queries, d_l).
-                d_l is the dimension of embeddings.
-            all_mask_preds: Mask scores for all decoder layers with
-                shape (num_decoder, batch_size, num_queries, h, w).
-            gt_labels_list: Ground truth class indices for each
-                image with shape (n, ). n is the sum of number of stuff type
-                and number of instance in a image.
-            gt_masks_list: Ground truth mask for each image with shape (n, h, w).
-            gt_caption_ids_list: A list of tensors of shape (max_token,) that stores the token ids for the captions. 
-                One tensor is for 1 sample in the minibatch.
-            gt_caption_embs_list: A list of tensors of shape (max_token,) that stores the token embeddings for the captions. 
-                One tensor is for 1 sample in the minibatch. (max_token, d_l).
-            gt_caption_mask_list (list[Tensor]): A list of tensors of shape (max_token,) that stores the token masks for the captions. 
-                One tensor is for 1 sample in the minibatch. 
+                cls_out_channels). Note `cls_out_channels` should includes background.
+            all_cls_emb_preds: A list of class embedding prediction for all decoder
+                layers. Each is a tensor with shape (batch_size, num_queries, d_l). d_l is the dimension of embeddings.
+            all_layer_mask_preds: A list of mask prediction logits for all decoder layers with
+                shape (batch_size, num_queries, h, w).
+            gt_labels_list: A list of ground truth class indice arrays for each sample in the minibatch. Each array has shape (n, ) with
+                n is the sum of number of stuff type and number of instance in a image.
+            gt_masks_list: A list of groundtruth mask arrays for different samples in the minibatch. Each ground truth mask array has shape (n, h, w).
+            gt_caption_ids_list: A list of caption id arrays for different samples in the minibatch. Each array has length of (max_token,).
+            gt_caption_embs_list: A list of caption embedding arrays for different samples in the minibatch. Each array has shape (max_token, d_l) 
+            gt_caption_mask_list: A list of caption id mask arrays for different samples in the minibatch. Each array has a length of (max_token,).
             img_metas (list[dict]): List of image meta information.
 
         Returns:
-            dict[str, Tensor]: A dictionary of loss components.
+            A dictionary of loss components.
         """
-        num_dec_layers = len(all_cls_scores)
-        all_gt_labels_list = [gt_labels_list for _ in range(num_dec_layers)]
-        all_gt_masks_list = [gt_masks_list for _ in range(num_dec_layers)]
-        all_gt_caption_ids_list = [gt_caption_ids_list for _ in range(num_dec_layers)]
-        all_gt_caption_embs_list = [gt_caption_embs_list for _ in range(num_dec_layers)]
-        all_gt_caption_mask_list = [gt_caption_mask_list for _ in range(num_dec_layers)]
-        all_gt_caption_nouns_ids_list = [gt_caption_nouns_ids_list for _ in range(num_dec_layers)]
-        all_gt_caption_nouns_embs_list = [gt_caption_nouns_embs_list for _ in range(num_dec_layers)]
-        all_gt_caption_nouns_mask_list = [gt_caption_nouns_mask_list for _ in range(num_dec_layers)]
-        img_metas_list = [img_metas for _ in range(num_dec_layers)]
+        num_dec_layers = len(all_layer_cls_scores)
 
         losses_cls, losses_cls_emb, losses_grounding, losses_caption_generation, losses_caption_align, losses_mask, losses_dice = multi_apply(
-            self.loss_single, all_cls_scores, all_cls_emb_preds, all_mask_preds,
-            all_gt_labels_list, all_gt_masks_list, all_gt_caption_ids_list,
-            all_gt_caption_embs_list, all_gt_caption_mask_list,
-            all_gt_caption_nouns_ids_list, all_gt_caption_nouns_embs_list, all_gt_caption_nouns_mask_list, img_metas_list)
+            self.loss_single, all_layer_cls_scores, all_cls_emb_preds, all_layer_mask_preds,
+            [gt_labels_list for _ in range(num_dec_layers)], 
+            [gt_masks_list for _ in range(num_dec_layers)], 
+            [gt_caption_ids_list for _ in range(num_dec_layers)],
+            [gt_caption_embs_list for _ in range(num_dec_layers)], 
+            [gt_caption_mask_list for _ in range(num_dec_layers)],
+            [gt_caption_nouns_ids_list for _ in range(num_dec_layers)], 
+            [gt_caption_nouns_embs_list for _ in range(num_dec_layers)], 
+            [gt_caption_nouns_mask_list for _ in range(num_dec_layers)], 
+            [img_metas for _ in range(num_dec_layers)]
+        )
 
-        loss_dict = dict()
-        # loss from the last decoder layer
-        loss_dict['loss_cls'] = losses_cls[-1]
-        loss_dict['loss_cls_emb'] = losses_cls_emb[-1]
-        loss_dict['loss_grounding'] = losses_grounding[-1]
-        loss_dict['loss_caption_generation'] = losses_caption_generation[-1]
-        loss_dict['loss_caption_align'] = losses_caption_align[-1]
-        loss_dict['loss_mask'] = losses_mask[-1]
-        loss_dict['loss_dice'] = losses_dice[-1]
+        loss_dict = {
+            'loss_cls': losses_cls[-1],
+            'loss_cls_emb': losses_cls_emb[-1],
+            'loss_grounding': losses_grounding[-1],
+            'loss_caption_generation': losses_caption_generation[-1],
+            'loss_caption_align': losses_caption_align[-1],
+            'loss_mask': losses_mask[-1],
+            'loss_dice': losses_dice[-1],
+        }
+        
         if self.loss_only_last:
             return loss_dict
+        
         # loss from other decoder layers
-        num_dec_layer = 0
-        for loss_cls_i, loss_cls_emb_i, loss_grounding_i, losses_caption_generation_i, losses_caption_align_i, loss_mask_i, loss_dice_i in zip(
-                losses_cls[:-1], losses_cls_emb[:-1], losses_grounding[:-1], losses_caption_generation[:-1], losses_caption_align[:-1], losses_mask[:-1], losses_dice[:-1]):
-            loss_dict[f'd{num_dec_layer}.loss_cls'] = loss_cls_i * self.loss_aux_weight
-            loss_dict[f'd{num_dec_layer}.loss_cls_emb'] = loss_cls_emb_i * self.loss_aux_weight
-            loss_dict[f'd{num_dec_layer}.loss_grounding'] = loss_grounding_i * self.loss_aux_weight
-            loss_dict[f'd{num_dec_layer}.loss_caption_generation'] = losses_caption_generation_i * self.loss_aux_weight
-            loss_dict[f'd{num_dec_layer}.loss_caption_align'] = losses_caption_align_i * self.loss_aux_weight
-            loss_dict[f'd{num_dec_layer}.loss_mask'] = loss_mask_i * self.loss_aux_weight
-            loss_dict[f'd{num_dec_layer}.loss_dice'] = loss_dice_i * self.loss_aux_weight
-            num_dec_layer += 1
+        for decoder_layer_idx, (loss_cls_i, loss_cls_emb_i, loss_grounding_i, losses_caption_generation_i, losses_caption_align_i, loss_mask_i, loss_dice_i) in enumerate(zip(
+                losses_cls[:-1], losses_cls_emb[:-1], losses_grounding[:-1], losses_caption_generation[:-1], losses_caption_align[:-1], losses_mask[:-1], losses_dice[:-1])):
+            loss_dict[f'd{decoder_layer_idx}.loss_cls'] = loss_cls_i * self.loss_aux_weight
+            loss_dict[f'd{decoder_layer_idx}.loss_cls_emb'] = loss_cls_emb_i * self.loss_aux_weight
+            loss_dict[f'd{decoder_layer_idx}.loss_grounding'] = loss_grounding_i * self.loss_aux_weight
+            loss_dict[f'd{decoder_layer_idx}.loss_caption_generation'] = losses_caption_generation_i * self.loss_aux_weight
+            loss_dict[f'd{decoder_layer_idx}.loss_caption_align'] = losses_caption_align_i * self.loss_aux_weight
+            loss_dict[f'd{decoder_layer_idx}.loss_mask'] = loss_mask_i * self.loss_aux_weight
+            loss_dict[f'd{decoder_layer_idx}.loss_dice'] = loss_dice_i * self.loss_aux_weight
         return loss_dict
-
+    
     def loss_single(
         self, 
         cls_scores: torch.Tensor, 
@@ -486,140 +455,94 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         gt_caption_ids_list: List[torch.Tensor], 
         gt_caption_embs_list: List[torch.Tensor], 
         gt_caption_mask_list: List[torch.Tensor],
-        gt_caption_nouns_ids_list, 
-        gt_caption_nouns_embs_list, 
-        gt_caption_nouns_mask_list, 
+        gt_caption_nouns_ids_list: List[torch.Tensor], 
+        gt_caption_nouns_embs_list: List[torch.Tensor], 
+        gt_caption_nouns_mask_list: List[torch.Tensor], 
         img_metas: List[Dict],
-        ):
+        ) -> Tuple[torch.Tensor]:
         """Loss function for outputs from a single decoder layer.
 
         Args:
-            cls_scores: Mask score logits from a single decoder layer
-                for all images. Shape (batch_size, num_queries,
-                cls_out_channels). Note `cls_out_channels` should includes
-                background.
-            cls_emb_preds: Embedding prediction for a single decoder
-                layer for all images with shape (batch_size, num_queries, d_l).
+            cls_scores: Mask score logits from a single decoderlayer for all images. Shape (batch_size, num_queries, cls_out_channels). 
+                Note `cls_out_channels` should includes background.
+            cls_emb_preds: Embedding prediction for a single decoder layer for all images with shape (batch_size, num_queries, d_l).
                 d_l is the dimension of embeddings.
-            mask_preds: Mask logits for a pixel decoder for all
-                images. Shape (batch_size, num_queries, h, w).
-            gt_labels_list: Ground truth class indices for each
-                image, each with shape (num_gts, ).
-            gt_masks_list: Ground truth mask for each image,
-                each with shape (num_gts, h, w).
+            mask_preds: Mask logits for a pixel decoder for all images. Shape (batch_size, num_queries, h, w).
+            gt_labels_list: Ground truth class indices for each image, each with shape (num_gts, ).
+            gt_masks_list: Ground truth mask for each image, each with shape (num_gts, h, w).
             gt_caption_ids_list: (max_token,)
             gt_caption_embs_list: (max_token, d_l)
             gt_caption_mask_list: (max_token,)
             img_metas: List of image meta information.
 
         Returns:
-            tuple[Tensor]: Loss components for outputs from a single \
-                decoder layer.
+            Loss components for outputs from a single decoder layer.
         """
-        num_imgs = cls_scores.size(0)
-        cls_scores_list = [cls_scores[i] for i in range(num_imgs)]
-        if self.use_class_emb:
-            cls_emb_logits = self._get_cls_emb_logits(cls_emb_preds)
-            cls_emb_logits_list = [cls_emb_logits[i] for i in range(num_imgs)]
-        else:
-            cls_emb_logits_list = [None for i in range(num_imgs)]
-        mask_preds_list = [mask_preds[i] for i in range(num_imgs)]
-        
-        (labels_list, label_weights_list, mask_targets_list, mask_weights_list, 
-        num_total_pos, _) = self.get_targets(cls_scores_list, cls_emb_logits_list, mask_preds_list,
-                                           gt_labels_list, gt_masks_list,
-                                           img_metas)
+        cls_emb_logits = self._get_cls_emb_logits_from_cls_emb_pred(cls_emb_preds) if self.use_class_emb else None
+        (labels, label_weights, mask_targets, mask_weights, num_total_pos, _) = self._get_targets_all_images_single_layer(
+            [x for x in cls_scores], 
+            [x for x in cls_emb_logits] if self.use_class_emb else [None] * cls_scores.size(0), 
+            [x for x in mask_preds],
+            gt_labels_list, 
+            gt_masks_list,
+            img_metas)
 
-        # shape (batch_size, num_queries)
-        labels = torch.stack(labels_list, dim=0)
-        # shape (batch_size, num_queries)
-        label_weights = torch.stack(label_weights_list, dim=0)
-        # shape (num_total_gts, h, w)
-        mask_targets = torch.cat(mask_targets_list, dim=0)
-        # shape (batch_size, num_queries)
-        mask_weights = torch.stack(mask_weights_list, dim=0)
-
-        # classfication loss
-        # shape (batch_size * num_queries, )
+        # Classfication loss
         cls_scores = cls_scores.flatten(0, 1)
-        labels = labels.flatten(0, 1)
-        label_weights = label_weights.flatten(0, 1)
+        labels = labels.flatten(0, 1)  # (batch_size * num_queries, )
+        label_weights = label_weights.flatten(0, 1)  # (batch_size * num_queries, )
+        class_weight = cls_scores.new_tensor(self.class_weight)  # (batch_size * num_queries, )
+        loss_cls = self._loss_cls(cls_scores, labels, label_weights, avg_factor=class_weight[labels].sum())
 
-        class_weight = cls_scores.new_tensor(self.class_weight)
-        loss_cls = self.loss_cls(
-            cls_scores,
-            labels,
-            label_weights,
-            avg_factor=class_weight[labels].sum())
-
-        # embedding prediction loss
+        # Embedding prediction loss
         loss_cls_emb = loss_cls.new_tensor(0.0)
         if self.use_class_emb:
-            cls_emb_logits = cls_emb_logits.flatten(0, 1)
-            loss_cls_emb = self.loss_cls_emb(
-                cls_emb_logits,
-                labels,
-                label_weights.float(),
-                avg_factor=class_weight[labels].sum())
+            loss_cls_emb = self._loss_cls_emb(cls_emb_logits.flatten(0, 1), labels, label_weights.float(), avg_factor=class_weight[labels].sum())
 
-        # caption grounding loss
+        # Caption grounding loss
         loss_grounding = loss_cls.new_tensor(0.0)
-        if self.use_caption:
+        if self._use_caption:
             all_gt_caption_nouns_embs, all_gt_caption_nouns_mask, all_cls_emb_preds = \
-                self.gather_captions_and_preds(gt_caption_nouns_embs_list, gt_caption_nouns_mask_list, cls_emb_preds)
-            loss_grounding = self.loss_grounding(
-                all_cls_emb_preds,
-                all_gt_caption_nouns_embs,
-                all_gt_caption_nouns_mask,
-                self.softmax_temperature)
+                self._gather_captions_and_preds(gt_caption_nouns_embs_list, gt_caption_nouns_mask_list, cls_emb_preds)
+            loss_grounding = self._loss_grounding(all_cls_emb_preds, all_gt_caption_nouns_embs, all_gt_caption_nouns_mask, self.softmax_temperature)
 
-        # caption generation loss
+        # Caption generation loss
         loss_caption_generation = loss_cls.new_tensor(0.0)
         if self.use_caption_generation:
-            gt_caption_embs = torch.stack(gt_caption_embs_list, dim=0)
-            gt_caption_masks = torch.stack(gt_caption_mask_list, dim=0).bool()
             caption_logits = self.caption_generator(
-                tgt=gt_caption_embs[:, :-1, :],
+                tgt=torch.stack(gt_caption_embs_list, dim=0)[:, :-1, :], 
                 memory=cls_emb_preds,
-                tgt_key_padding_mask=torch.logical_not(gt_caption_masks[:, :-1]))[1]
-            # (batch_size * (max_tokens - 1), vocab_size)
-            caption_logits = caption_logits.flatten(0, 1)
+                tgt_key_padding_mask=torch.logical_not(torch.stack(gt_caption_mask_list, dim=0).bool()[:, :-1]))[1]
+            
+            caption_logits = caption_logits.flatten(0, 1)  #(batch_size * (max_tokens - 1), vocab_size)
             for i in range(len(gt_caption_ids_list)):
                 gt_caption_ids =  gt_caption_ids_list[i]
                 gt_caption_nouns_ids = gt_caption_nouns_ids_list[i].cpu().numpy().tolist()
                 for j in range(len(gt_caption_ids)):
                     if int(gt_caption_ids[j]) not in gt_caption_nouns_ids:
                         if self.gen_only_obj_nouns:
-                            # set gt to 0 except for obj nouns
-                            gt_caption_ids[j] = 0
+                            gt_caption_ids[j] = 0  # set gt to 0 except for obj nouns
                     elif int(gt_caption_ids[j]) in gt_caption_nouns_ids:
                         if self.gen_mask_obj_nouns:
-                            # set 0 to one object noun (the first one seen in the caption)
-                            gt_caption_ids[j] = 0
+                            gt_caption_ids[j] = 0  # set 0 to one object noun (the first one seen in the caption)
                             break
                         if self.gen_replace_obj_nouns:
                             gt_caption_ids[j] = 4874    # 'object'
-            # (batch_size * (max_tokens - 1))
-            gt_caption_ids = torch.stack(gt_caption_ids_list, dim=0)[:, 1:].flatten(0, 1)
-            loss_caption_generation = self.loss_caption_generation(
-                caption_logits,
-                gt_caption_ids)
+            gt_caption_ids = torch.stack(gt_caption_ids_list, dim=0)[:, 1:].flatten(0, 1)  # (batch_size * (max_tokens - 1))
+            loss_caption_generation = self._loss_caption_generation(caption_logits, gt_caption_ids)
             
         loss_caption_align = loss_cls.new_tensor(0.0)
         if self.use_caption_align:
-            gt_caption_nouns_embs = torch.stack(gt_caption_nouns_embs_list, dim=0)
-            gt_caption_nouns_masks = torch.stack(gt_caption_nouns_mask_list, dim=0).bool()
             loss_caption_align = self.loss_caption_align(
-                cls_emb_preds,
-                gt_caption_nouns_embs,
-                gt_caption_nouns_masks)
+                cls_emb_preds, 
+                torch.stack(gt_caption_nouns_embs_list, dim=0), 
+                torch.stack(gt_caption_nouns_mask_list, dim=0).bool()
+            )
 
-        num_total_masks = reduce_mean(cls_scores.new_tensor([num_total_pos]))
-        num_total_masks = max(num_total_masks, 1)
+        num_total_masks = max(reduce_mean(cls_scores.new_tensor([num_total_pos])), 1)
 
         # extract positive ones
-        # shape (batch_size, num_queries, h, w) -> (num_total_gts, h, w)
-        mask_preds = mask_preds[mask_weights > 0]
+        mask_preds = mask_preds[mask_weights > 0]  # shape (batch_size, num_queries, h, w) -> (num_total_gts, h, w)
 
         if mask_targets.shape[0] == 0:
             # zero match
@@ -628,57 +551,44 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             return loss_cls, loss_cls_emb, loss_grounding, loss_caption_generation, loss_caption_align, loss_mask, loss_dice
 
         with torch.no_grad():
-            points_coords = get_uncertain_point_coords_with_randomness(
-                mask_preds.unsqueeze(1), None, self.num_points,
-                self.oversample_ratio, self.importance_sample_ratio)
-            # shape (num_total_gts, h, w) -> (num_total_gts, num_points)
-            mask_point_targets = point_sample(
-                mask_targets.unsqueeze(1).float(), points_coords).squeeze(1)
-        # shape (num_queries, h, w) -> (num_queries, num_points)
-        mask_point_preds = point_sample(
-            mask_preds.unsqueeze(1), points_coords).squeeze(1)
-
-        # dice loss
-        loss_dice = self.loss_dice(
-            mask_point_preds, mask_point_targets, avg_factor=num_total_masks)
+            points_coords = get_uncertain_point_coords_with_randomness(mask_preds.unsqueeze(1), None, self.num_points, self.oversample_ratio, self.importance_sample_ratio)
+            mask_point_targets = point_sample(mask_targets.unsqueeze(1).float(), points_coords).squeeze(1)  # shape (num_total_gts, h, w) -> (num_total_gts, num_points)
+        
+        mask_point_preds = point_sample(mask_preds.unsqueeze(1), points_coords).squeeze(1)  # shape (num_queries, h, w) -> (num_queries, num_points)
+        loss_dice = self.loss_dice(mask_point_preds, mask_point_targets, avg_factor=num_total_masks)
 
         # mask loss
-        # shape (num_queries, num_points) -> (num_queries * num_points, )
-        mask_point_preds = mask_point_preds.reshape(-1)
-        # shape (num_total_gts, num_points) -> (num_total_gts * num_points, )
-        mask_point_targets = mask_point_targets.reshape(-1)
-        loss_mask = self.loss_mask(
-            mask_point_preds,
-            mask_point_targets,
-            avg_factor=num_total_masks * self.num_points)
+        mask_point_preds = mask_point_preds.reshape(-1)  # shape (num_queries, num_points) -> (num_queries * num_points, )
+        mask_point_targets = mask_point_targets.reshape(-1)  # shape (num_total_gts, num_points) -> (num_total_gts * num_points, )
+        loss_mask = self.loss_mask(mask_point_preds, mask_point_targets, avg_factor=num_total_masks * self.num_points)
 
         return loss_cls, loss_cls_emb, loss_grounding, loss_caption_generation, loss_caption_align, loss_mask, loss_dice 
 
-    def _get_cls_emb_logits(self, cls_emb_preds: torch.Tensor) -> torch.Tensor:
+    def _get_cls_emb_logits_from_cls_emb_pred(self, cls_emb_preds: torch.Tensor) -> torch.Tensor:
         """Compute prediction logits for embedding predicion head. 
 
+        The output will be <cls_emb_preds, self.class_embs> / temperature.
         Args:
             cls_emb_preds: A tensor of (batch_size, num_queries, d_l) that stores class embedding prediction for a single decoder for all images.
             
         Returns:
-            cls_emb_logits: Embedding predicion scores.
-                (batch_size, num_queries, self.num_classes + 1).
+            cls_emb_logits: Embedding predicion scores with shape of (batch_size, num_queries, self.num_classes + 1).
         """
-        # (batch_size, num_queries, d_l) * (d_l, self.num_classes) ->
-        # (batch_size, num_queries, self.num_classes)
+        # (batch_size, num_queries, d_l) * (d_l, self.num_classes) -> (batch_size, num_queries, self.num_classes)
         return torch.matmul(cls_emb_preds, self.class_embs.t()) / self.softmax_temperature
 
-    def gather_captions_and_preds(self, gt_caption_embs_list, gt_caption_mask_list, cls_emb_preds):
+    def _gather_captions_and_preds(self, gt_caption_embs_list: List[torch.Tensor], gt_caption_mask_list: List[torch.Tensor], cls_emb_preds: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         """Gather all caption annotations from the whole batch using dist.all_gather. 
 
         Args:
-            gt_caption_embs_list (list[Tensor]): (max_token, d_l)
-            gt_caption_mask_list (list[Tensor]): (max_token)
-            cls_emb_preds (Tensor): (batch_size, num_queries, d_l).
+            gt_caption_embs_list: (max_token, d_l)
+            gt_caption_mask_list: (max_token)
+            cls_emb_preds: (batch_size, num_queries, d_l).
+            
         Returns:
-            all_gt_caption_embs (Tensor): (batch_size * world_size, max_tokens, d_l)
-            all_gt_caption_mask (Tensor): (batch_size * world_size, max_tokens).
-            all_cls_emb_preds (Tensor): (batch_size * world_size, num_queries, d_l).     
+            all_gt_caption_embs: (batch_size * world_size, max_tokens, d_l)
+            all_gt_caption_mask: (batch_size * world_size, max_tokens).
+            all_cls_emb_preds: (batch_size * world_size, num_queries, d_l): The predicted class embeddings from all the workers.     
         """
         batch_size = len(gt_caption_embs_list)
         rank, world_size = get_dist_info()
@@ -693,28 +603,28 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             dist.all_gather(mask_tmp_list, gt_caption_mask)
             dist.all_gather(pred_tmp_list, cls_emb_preds)
 
-            all_gt_caption_embs = torch.cat(emb_tmp_list, dim=0)
-            all_gt_caption_mask = torch.cat(mask_tmp_list, dim=0)
             all_cls_emb_preds = torch.cat(pred_tmp_list, dim=0)
             all_cls_emb_preds[rank * batch_size : (rank + 1) * batch_size] = cls_emb_preds
-            return all_gt_caption_embs, all_gt_caption_mask, all_cls_emb_preds
+            return torch.cat(emb_tmp_list, dim=0), torch.cat(mask_tmp_list, dim=0), all_cls_emb_preds
         else:
-            all_gt_caption_embs = torch.stack(gt_caption_embs_list, dim=0)
-            all_gt_caption_mask = torch.stack(gt_caption_mask_list, dim=0)
-            all_cls_emb_preds = cls_emb_preds
-            return all_gt_caption_embs, all_gt_caption_mask, all_cls_emb_preds
+            return torch.stack(gt_caption_embs_list, dim=0), torch.stack(gt_caption_mask_list, dim=0), cls_emb_preds
 
-    def extract_word_embeddings(self, ids_list, mask_list, emb_type='bert'):
-        """extract caption words' embeddings and masks
+    def _extract_word_embeddings(self, ids_list: List[torch.Tensor], mask_list: List[torch.Tensor], emb_type: str='bert') -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        """Extract caption words' embeddings and masks
+        
+        Args:
+            ids_list: A list of token ids for all captions in the minibatch. Each item of the list is for 1 sample of shapes (N_tokens,).
+            mask_list: A list of token masks for all captions in the minibatch. One item of the list is for 1 sample of shapes (N_tokens,).
+        
+        Returns:
+            A list of token embeddings, one item for 1 sample of shape (N_token, Emb_dim).
+            A list of token makes, one item for 1 sample of shape (N_token,).
         """
-
         embs_list = []
         valid_mask_list = []
-        if emb_type == 'bert':
+        if emb_type in ('bert', 'pubmed-bert'):
             for i, ids in enumerate(ids_list):
-                embs = self.bert_embeddings.word_embeddings(ids)
-                if self.text_emb_norm:
-                    embs = self.bert_embeddings.LayerNorm(embs)
+                embs = self.bert_embeddings.calculate_word_embeddings(ids)
                 embs_list.append(embs)
                 valid_mask_list.append(mask_list[i])
         elif emb_type == 'clip':
@@ -729,7 +639,8 @@ class Mask2FormerHeadOpen(MaskFormerHead):
 
         return embs_list, valid_mask_list
 
-    def forward_head(self, decoder_out: torch.Tensor, mask_feature: torch.Tensor, attn_mask_target_size: Tuple[int, int]):
+    def forward_head(self, decoder_out: torch.Tensor, mask_feature: torch.Tensor, attn_mask_target_size: Tuple[int, int]) -> \
+        Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         """Forward for head part which is called after every decoder layer.
 
         Args:
@@ -738,263 +649,182 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             attn_mask_target_size : target attention mask size.
 
         Returns:
-            tuple: A tuple contain three elements.
-
-            - cls_pred (Tensor): Classification scores in shape \
-                (batch_size, num_queries, cls_out_channels). \
-                Note `cls_out_channels` should includes background.
-            - cls_emb_pred (Tensor): Embedding prediction in shape \
-                (batch_size, num_queries, d_l). \
-                d_l is the dimension of embeddings.
-            - mask_pred (Tensor): Mask scores in shape \
-                (batch_size, num_queries,h, w).
-            - attn_mask (Tensor): Attention mask in shape \
-                (batch_size * num_heads, num_queries, h, w).
+            cls_pred: Classification scores in shape (batch_size, num_queries, cls_out_channels). Note `cls_out_channels` should includes background.
+            cls_emb_pred: Embedding prediction in shape (batch_size, num_queries, d_l). d_l is the dimension of embeddings.
+            mask_pred: Mask scores in shape (batch_size, num_queries,h, w).
+            attn_mask: Attention mask in shape (batch_size * num_heads, num_queries, h, w).
         """
-        decoder_out = self.transformer_decoder.post_norm(decoder_out)
-        decoder_out = decoder_out.transpose(0, 1)  # (batch_size, num_queries, c)
+        decoder_out = self.transformer_decoder.post_norm(decoder_out).transpose(0, 1)  # (batch_size, num_queries, c)
         
-        # Class prediction.
         cls_pred = self.cls_embed(decoder_out) # shape (batch_size, num_queries, num_classes + 1)
-        
-        # shape (num_queries, batch_size, d_l)
-        cls_emb_pred = cls_pred
+    
+        cls_emb_pred = cls_pred   # shape (num_queries, batch_size, d_l)
         if self.use_class_emb:
             cls_emb_pred = self.v2l_transform(decoder_out)
-            # normalization the embedding prediction
             if self.pred_emb_norm:
                 cls_emb_pred = cls_emb_pred / cls_emb_pred.norm(dim=-1, keepdim=True)
-        # shape (num_queries, batch_size, c)
-        mask_embed = self.mask_embed(decoder_out)
-        # shape (num_queries, batch_size, h, w)
-        mask_pred = torch.einsum('bqc,bchw->bqhw', mask_embed, mask_feature)
-        attn_mask = F.interpolate(
-            mask_pred,
-            attn_mask_target_size,
-            mode='bilinear',
-            align_corners=False)
-        # shape (num_queries, batch_size, h, w) ->
-        #   (batch_size * num_head, num_queries, h, w)
-        attn_mask = attn_mask.flatten(2).unsqueeze(1).repeat(
-            (1, self.num_heads, 1, 1)).flatten(0, 1)
+                
+        mask_pred = torch.einsum('bqc,bchw->bqhw', self.mask_embed(decoder_out), mask_feature) # shape (num_queries, batch_size, h, w)
+        attn_mask = F.interpolate(mask_pred, attn_mask_target_size, mode='bilinear', align_corners=False)
+    
+        attn_mask = attn_mask.flatten(2).unsqueeze(1).repeat((1, self.num_heads, 1, 1)).flatten(0, 1)  # shape (num_queries, batch_size, h, w) -> (batch_size * num_head, num_queries, h, w)
         attn_mask = attn_mask.sigmoid() < 0.5
         attn_mask = attn_mask.detach()
 
         return cls_pred, cls_emb_pred, mask_pred, attn_mask
 
-    def forward(self, feats, img_metas) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+    def forward(self, feats: List[torch.Tensor], img_metas: List[Dict]) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
         """Forward function.
 
-            Args:
-                feats (list[Tensor]): Multi scale Features from the
-                    upstream network, each is a 4D-tensor.
-                img_metas (list[dict]): List of image information.
+        Args:
+            feats: Multi scale Features from the upstream network, each is a 4D-tensor.
+            img_metas: List of image information.
 
-            Returns:
-                cls_pred_list: Classification logits
-                    for each decoder layer. Each is a 3D-tensor with shape \
-                    (batch_size, num_queries, cls_out_channels). \
-                    Note `cls_out_channels` should includes background.
-                cls_emb_pred_list: Embedding prediction \
-                    for each decoder layer. Each is a 3D-tensor with shape
-                    (batch_size, num_queries, d_l). \
-                    d_l is the dimension of embeddings.
-                mask_pred_list: Mask logits for each \
-                    decoder layer. Each with shape (batch_size, num_queries, \
-                    h, w).
+        Returns:
+            cls_pred_list: Classification logits for each decoder layer. Each is a 3D-tensor with shape (batch_size, num_queries, cls_out_channels). 
+                Note `cls_out_channels` should includes background.
+            cls_emb_pred_list: Embedding prediction for each decoder layer. Each is a 3D-tensor with shape (batch_size, num_queries, d_l). 
+                d_l is the dimension of embeddings.
+            mask_pred_list: Mask logits for each  decoder layer. Each with shape (batch_size, num_queries, h, w).
         """
         batch_size = len(img_metas)
         mask_features, multi_scale_memorys = self.pixel_decoder(feats)
+        
         # multi_scale_memorys (from low resolution to high resolution)
         decoder_inputs = []
         decoder_positional_encodings = []
         for i in range(self.num_transformer_feat_level):
             decoder_input = self.decoder_input_projs[i](multi_scale_memorys[i])
-            # shape (batch_size, c, h, w) -> (h*w, batch_size, c)
-            decoder_input = decoder_input.flatten(2).permute(2, 0, 1)
-            level_embed = self.level_embed.weight[i].view(1, 1, -1)
-            decoder_input = decoder_input + level_embed
-            # shape (batch_size, c, h, w) -> (h*w, batch_size, c)
-            mask = decoder_input.new_zeros(
-                (batch_size, ) + multi_scale_memorys[i].shape[-2:],
-                dtype=torch.bool)
-            decoder_positional_encoding = self.decoder_positional_encoding(
-                mask)
-            decoder_positional_encoding = decoder_positional_encoding.flatten(
-                2).permute(2, 0, 1)
-            decoder_inputs.append(decoder_input)
-            decoder_positional_encodings.append(decoder_positional_encoding)
+            decoder_input = decoder_input.flatten(2).permute(2, 0, 1) # shape (batch_size, c, h, w) -> (h*w, batch_size, c)
+            decoder_inputs.append(decoder_input + self.level_embed.weight[i].view(1, 1, -1))
+            
+            mask = decoder_input.new_zeros((batch_size, ) + multi_scale_memorys[i].shape[-2:], dtype=torch.bool)  # shape (batch_size, c, h, w) -> (h*w, batch_size, c)
+            decoder_positional_encoding = self.decoder_positional_encoding(mask)
+            decoder_positional_encodings.append(decoder_positional_encoding.flatten(2).permute(2, 0, 1))
+            
         # shape (num_queries, c) -> (num_queries, batch_size, c)
-        query_feat = self.query_feat.weight.unsqueeze(1).repeat(
-            (1, batch_size, 1))
-        query_embed = self.query_embed.weight.unsqueeze(1).repeat(
-            (1, batch_size, 1))
+        query_feat = self.query_feat.weight.unsqueeze(1).repeat((1, batch_size, 1))
+        query_embed = self.query_embed.weight.unsqueeze(1).repeat((1, batch_size, 1))
 
         cls_pred_list = []
         cls_emb_pred_list = []
         mask_pred_list = []
-        cls_pred, cls_emb_pred, mask_pred, attn_mask = self.forward_head(
-            query_feat, mask_features, multi_scale_memorys[0].shape[-2:])
+        cls_pred, cls_emb_pred, mask_pred, attn_mask = self.forward_head(query_feat, mask_features, multi_scale_memorys[0].shape[-2:])
         cls_pred_list.append(cls_pred)
         cls_emb_pred_list.append(cls_emb_pred)
         mask_pred_list.append(mask_pred)
 
         for i in range(self.num_transformer_decoder_layers):
             level_idx = i % self.num_transformer_feat_level
-            # if a mask is all True(all background), then set it all False.
-            attn_mask[torch.where(
-                attn_mask.sum(-1) == attn_mask.shape[-1])] = False
+            attn_mask[torch.where(attn_mask.sum(-1) == attn_mask.shape[-1])] = False  # if a mask is all True(all background), then set it all False.
 
-            # cross_attn + self_attn
-            layer = self.transformer_decoder.layers[i]
-            attn_masks = [attn_mask, None]
-            query_feat = layer(
+            query_feat = self.transformer_decoder.layers[i](
                 query=query_feat,
                 key=decoder_inputs[level_idx],
                 value=decoder_inputs[level_idx],
                 query_pos=query_embed,
                 key_pos=decoder_positional_encodings[level_idx],
-                attn_masks=attn_masks,
+                attn_masks=[attn_mask, None],  # cross_attn + self_attn
                 query_key_padding_mask=None,
-                # here we do not apply masking on padded region
-                key_padding_mask=None)
-            cls_pred, cls_emb_pred, mask_pred, attn_mask = self.forward_head(
-                query_feat, mask_features, multi_scale_memorys[
-                    (i + 1) % self.num_transformer_feat_level].shape[-2:])
-
+                key_padding_mask=None)   # here we do not apply masking on padded region
+            
+            cls_pred, cls_emb_pred, mask_pred, attn_mask = self.forward_head(query_feat, mask_features, multi_scale_memorys[(i + 1) % self.num_transformer_feat_level].shape[-2:])
             cls_pred_list.append(cls_pred)
             cls_emb_pred_list.append(cls_emb_pred)
             mask_pred_list.append(mask_pred)
 
         return cls_pred_list, cls_emb_pred_list, mask_pred_list
-
+    
     def forward_train(self,
-                      feats: List[torch.Tensor],
-                      img_metas: List[Dict],
-                      gt_bboxes: List[torch.Tensor],
-                      gt_labels: List[torch.Tensor],
-                      gt_masks,
-                      gt_semantic_seg,
-                      gt_caption_ids,
-                      gt_caption_mask,
-                      gt_caption_nouns_ids,
-                      gt_caption_nouns_mask,
-                      gt_bboxes_ignore=None,
-                      **kwargs):
+                    feats: List[torch.Tensor],
+                    img_metas: List[Dict],
+                    gt_bboxes: List[torch.Tensor],
+                    gt_labels: List[torch.Tensor],
+                    gt_masks: List[torch.Tensor],
+                    gt_semantic_seg: Optional[List[torch.Tensor]],
+                    gt_caption_ids: List[torch.Tensor],
+                    gt_caption_mask: List[torch.Tensor],
+                    gt_caption_nouns_ids: List[torch.Tensor],
+                    gt_caption_nouns_mask: List[torch.Tensor],
+                    gt_bboxes_ignore: Optional[torch.Tensor] =None,
+                    **kwargs) -> Dict[str, torch.Tensor]:
         """Forward function for training mode.
 
         Args:
-            feats: Multi-level features from the upstream
-                network, each is a 4D-tensor.
+            feats: Multi-level features from the upstream network, each is a 4D-tensor.
             img_metas: List of image information.
-            gt_bboxes: Each element is ground truth bboxes of
-                the image, shape (num_gts, 4). Not used here.
-            gt_labels: Each element is ground truth labels of
-                each box, shape (num_gts,).
-            gt_masks (list[BitmapMasks]): Each element is masks of instances
-                of a image, shape (num_gts, h, w).
-            gt_semantic_seg (list[tensor] | None): Each element is the ground
-                truth of semantic segmentation with the shape (N, H, W).
-                [0, num_thing_class - 1] means things,
-                [num_thing_class, num_class-1] means stuff,
-                255 means VOID. It's None when training instance segmentation.
-            gt_caption_ids (list[Tensor]): Each element is the caption token ids.
-            gt_caption_mask (list[Tensor]): Each element is the caption mask.
-                1 represents valid token.
-            gt_caption_nouns_ids (list[Tensor])
-            gt_caption_nouns_mask (list[Tensor]): The two are same as above, except
-                only object nouns are extracted.
-            gt_bboxes_ignore (list[Tensor]): Ground truth bboxes to be
-                ignored. Defaults to None.
+            gt_bboxes: Each element is ground truth bboxes of the image, shape (num_gts, 4). Not used here.
+            gt_labels: Each element is ground truth labels of each box, shape (num_gts,).
+            gt_masks: A list of instance masks of shape (num_gts, h, w).
+            gt_semantic_seg: Each element is the ground truth of semantic segmentation with the shape (N, H, W).
+                [0, num_thing_class - 1] means things, [num_thing_class, num_class-1] means stuff, 255 means VOID. 
+                It's None when training instance segmentation.
+            gt_caption_ids: Each element is the caption token ids.
+            gt_caption_mask: Each element is the caption mask. 1 represents valid token.
+            gt_caption_nouns_ids: The id of the noun tokens.
+            gt_caption_nouns_mask : The mask of the noun tokens.
+            gt_bboxes_ignore: Ground truth bboxes to be ignored. Defaults to None.
             kwargs:
                 gt_cat_names (list[list[str]]): List of List of category names
                 of the corresponding label in gt_labels
 
         Returns:
-            dict[str, Tensor]: a dictionary of loss components
+            A dictionary of loss components
         """
-        # not consider ignoring bboxes
         assert gt_bboxes_ignore is None
 
-        # forward
-        all_cls_scores, all_cls_emb_preds, all_mask_preds = self(feats, img_metas)
+        all_layers_cls_scores, all_layers_cls_emb_preds, all_layers_mask_preds = self(feats, img_metas)
 
-        # preprocess ground truth
-        gt_labels, gt_masks = self.preprocess_gt(gt_labels, gt_masks,
-                                                 gt_semantic_seg, img_metas)
+        gt_labels, gt_masks = self.preprocess_gt(gt_labels, gt_masks, gt_semantic_seg, img_metas)
 
-        # extract caption words' embeddings
-        gt_caption_embs = None
-        gt_caption_nouns_embs = None
+        gt_caption_embs, gt_caption_nouns_embs = None, None
         if self.use_caption_generation:
-            gt_caption_embs, gt_caption_mask = \
-                self.extract_word_embeddings(gt_caption_ids, gt_caption_mask, self.caption_gen_emb_type)
-        if self.use_caption:
-            gt_caption_nouns_embs, gt_caption_nouns_mask = \
-                self.extract_word_embeddings(gt_caption_nouns_ids, gt_caption_nouns_mask, self.caption_emb_type)
-
-        # loss
-        losses = self.loss(all_cls_scores, all_cls_emb_preds, all_mask_preds,
+            gt_caption_embs, gt_caption_mask = self._extract_word_embeddings(gt_caption_ids, gt_caption_mask, self.caption_gen_emb_type)
+        
+        if self._use_caption:
+            gt_caption_nouns_embs, gt_caption_nouns_mask = self._extract_word_embeddings(gt_caption_nouns_ids, gt_caption_nouns_mask, self.caption_emb_type)
+        
+        return self.loss(all_layers_cls_scores, all_layers_cls_emb_preds, all_layers_mask_preds,
                            gt_labels, gt_masks, gt_caption_ids, gt_caption_embs, gt_caption_mask,
                            gt_caption_nouns_ids, gt_caption_nouns_embs, gt_caption_nouns_mask, img_metas)
 
-        return losses
-
-    def simple_test(self, feats, img_metas, **kwargs):
-        """Test without augmentaton.
-
+    def simple_test(self, feats: List[torch.Tensor], img_metas: List[Dict], **kwargs) -> Tuple[torch.Tensor]:
+        """Tests without augmentaton.
         Args:
-            feats (list[Tensor]): Multi-level features from the
-                upstream network, each is a 4D-tensor.
-            img_metas (list[dict]): List of image information.
+            feats: Multi-level features from the upstream network, each is a 4D-tensor.
+            img_metas: List of image information.
 
         Returns:
-            tuple: A tuple contains two tensors.
-
-            - mask_cls_results (Tensor): Mask classification logits,\
-                shape (batch_size, num_queries, cls_out_channels).
+            mask_cls_results: Mask classification logits, shape (batch_size, num_queries, cls_out_channels).
                 Note `cls_out_channels` should includes background.
-            - mask_cls_emb_results (Tensor): embedding predictions,
-                shape (batch_size, num_queries, d_l).
-            - mask_pred_results (Tensor): Mask logits, shape \
-                (batch_size, num_queries, h, w).
+            mask_cls_emb_results: embedding predictions, shape (batch_size, num_queries, d_l).
+            mask_pred_results (Tensor): Mask logits, shape (batch_size, num_queries, h, w).
         """
-        all_cls_scores, all_cls_emb_preds, all_mask_preds = self(feats, img_metas)
-        mask_cls_results = all_cls_scores[-1]
+        all_layer_cls_scores, all_cls_emb_preds, all_layer_mask_preds = self(feats, img_metas)
+        mask_cls_results = all_layer_cls_scores[-1]
         mask_cls_emb_results = all_cls_emb_preds[-1]
-        mask_pred_results = all_mask_preds[-1]
+        mask_pred_results = all_layer_mask_preds[-1]
         assigned_labels = mask_cls_results
-
-        # assign results
         if kwargs.get('gt_labels', None) is not None:
-            cls_emb_logits = self._get_cls_emb_logits(mask_cls_emb_results)
+            cls_emb_logits = self._get_cls_emb_logits_from_cls_emb_pred(mask_cls_emb_results)
             gt_masks = kwargs['gt_masks'][0][0].pad(img_metas[0]['pad_shape'][:2], pad_val=0).to_tensor(dtype=torch.long, device=cls_emb_logits.device)
             # (num_queries, )
-            assigned_labels, label_weights, mask_targets, mask_weights, pos_inds, neg_inds = \
-                self._get_target_single(mask_cls_results[0], cls_emb_logits[0], mask_pred_results[0], kwargs['gt_labels'][0][0], gt_masks, img_metas)
+            assigned_labels = self._get_target_single(mask_cls_results[0], cls_emb_logits[0], mask_pred_results[0], kwargs['gt_labels'][0][0], gt_masks, img_metas)[0]
             
-        # upsample masks
-        img_shape = img_metas[0]['batch_input_shape']
-        if kwargs.get('img_shape', None):
-            img_shape = kwargs['img_shape']
+        img_shape = kwargs['img_shape'] if kwargs.get('img_shape', None) else img_metas[0]['batch_input_shape']   
         mask_pred_results = F.interpolate(
             mask_pred_results,
             size=(img_shape[0], img_shape[1]),
             mode='bilinear',
             align_corners=False)
 
-        # caption generation result
-        eval_types = self.test_cfg.get('eval_types', [])
-        with_caption = kwargs.get('with_caption', False) or ('cap_results' in eval_types)
         caption_generation_results = None
-        if with_caption:
-            caption_generation_results = beam_search(self, mask_cls_emb_results, BOS_TOKEN, EOS_TOKEN, max_len=35, beam_width=7, logging=kwargs.get('logging', False))
-
-        with_att = kwargs.get('with_att', False)
+        if kwargs.get('with_caption', False) or ('cap_results' in self.test_cfg.get('eval_types', [])):
+            caption_generation_results = beam_search(self, mask_cls_emb_results, BOS_TOKEN, EOS_TOKEN, max_len=35, beam_width=7, logging=kwargs.get('logging'
+    , False))
+        
         att = None
-        if with_att:
-            nouns_ids = kwargs['nouns_ids']
-            nouns_embs = get_ids_embedding(self, nouns_ids)
-            att = torch.matmul(mask_cls_emb_results[0,:,:], nouns_embs.t())
+        if kwargs.get('with_att', False):
+            att = torch.matmul(mask_cls_emb_results[0,:,:], get_ids_embedding(self, kwargs['nouns_ids']).t())
 
         return assigned_labels, mask_cls_emb_results, mask_pred_results, caption_generation_results, att
