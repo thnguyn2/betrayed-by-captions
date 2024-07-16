@@ -6,6 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
+from typing import List, Optional, Tuple
 
 import transformers
 from typing import Dict, List
@@ -216,7 +217,6 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                 i += 1
             # automatically to cuda
             self.register_buffer('class_embs', class_embs)
-            # self.v2l_transform = build_head(self.v2l_head_cfg)
             self.v2l_transform = nn.Linear(self.feat_channels, class_embs.shape[1])
         self.bert_embeddings = self.clip = None
         if self.use_caption:
@@ -391,30 +391,43 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                 neg_inds)
 
     @force_fp32(apply_to=('all_cls_scores', 'all_mask_preds'))
-    def loss(self, all_cls_scores, all_cls_emb_preds, all_mask_preds, 
-            gt_labels_list, gt_masks_list, gt_caption_ids_list,
-            gt_caption_embs_list, gt_caption_mask_list,
-            gt_caption_nouns_ids_list, gt_caption_nouns_embs_list, gt_caption_nouns_mask_list, img_metas):
+    def loss(
+        self, 
+        all_cls_scores: List[torch.Tensor], 
+        all_cls_emb_preds: List[torch.Tensor], 
+        all_mask_preds: List[torch.Tensor], 
+        gt_labels_list: List[Optional[torch.Tensor]], 
+        gt_masks_list: List[Optional[torch.Tensor]], 
+        gt_caption_ids_list: List[torch.Tensor],
+        gt_caption_embs_list: List[torch.Tensor], 
+        gt_caption_mask_list: List[torch.Tensor],
+        gt_caption_nouns_ids_list: List[torch.Tensor], 
+        gt_caption_nouns_embs_list: List[torch.Tensor], 
+        gt_caption_nouns_mask_list: List[torch.Tensor], 
+        img_metas
+        ):
         """Loss function.
 
         Args:
-            all_cls_scores (Tensor): Classification scores for all decoder
-                layers with shape (num_decoder, batch_size, num_queries,
+            all_cls_scores: Classification scores for all decoder
+                layers. Each is a tensor with shape (batch_size, num_queries,
                 cls_out_channels). Note `cls_out_channels` should includes
                 background.
-            all_cls_emb_preds (Tensor): Embedding prediction for all decoder
-                layers with shape (batch_size, num_queries, d_l).
+            all_cls_emb_preds: Embedding prediction for all decoder
+                layers. Each is a tensor with shape (batch_size, num_queries, d_l).
                 d_l is the dimension of embeddings.
-            all_mask_preds (Tensor): Mask scores for all decoder layers with
+            all_mask_preds: Mask scores for all decoder layers with
                 shape (num_decoder, batch_size, num_queries, h, w).
-            gt_labels_list (list[Tensor]): Ground truth class indices for each
+            gt_labels_list: Ground truth class indices for each
                 image with shape (n, ). n is the sum of number of stuff type
                 and number of instance in a image.
-            gt_masks_list (list[Tensor]): Ground truth mask for each image with
-                shape (n, h, w).
-            gt_caption_ids_list (list[Tensor]): (max_token,)
-            gt_caption_embs_list (list[Tensor]): (max_token, d_l)
-            gt_caption_mask_list (list[Tensor]): (max_token,)
+            gt_masks_list: Ground truth mask for each image with shape (n, h, w).
+            gt_caption_ids_list: A list of tensors of shape (max_token,) that stores the token ids for the captions. 
+                One tensor is for 1 sample in the minibatch.
+            gt_caption_embs_list: A list of tensors of shape (max_token,) that stores the token embeddings for the captions. 
+                One tensor is for 1 sample in the minibatch. (max_token, d_l).
+            gt_caption_mask_list (list[Tensor]): A list of tensors of shape (max_token,) that stores the token masks for the captions. 
+                One tensor is for 1 sample in the minibatch. 
             img_metas (list[dict]): List of image meta information.
 
         Returns:
@@ -715,14 +728,13 @@ class Mask2FormerHeadOpen(MaskFormerHead):
 
         return embs_list, valid_mask_list
 
-    def forward_head(self, decoder_out, mask_feature, attn_mask_target_size):
+    def forward_head(self, decoder_out: torch.Tensor, mask_feature: torch.Tensor, attn_mask_target_size: Tuple[int, int]):
         """Forward for head part which is called after every decoder layer.
 
         Args:
-            decoder_out (Tensor): in shape (num_queries, batch_size, c).
-            mask_feature (Tensor): in shape (batch_size, c, h, w).
-            attn_mask_target_size (tuple[int, int]): target attention
-                mask size.
+            decoder_out: the decoded query of shape in shape (num_queries, batch_size, c), where c is the embeding dimension.
+            mask_feature: in shape (batch_size, c, h, w).
+            attn_mask_target_size : target attention mask size.
 
         Returns:
             tuple: A tuple contain three elements.
@@ -739,9 +751,11 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                 (batch_size * num_heads, num_queries, h, w).
         """
         decoder_out = self.transformer_decoder.post_norm(decoder_out)
-        decoder_out = decoder_out.transpose(0, 1)
-        # shape (num_queries, batch_size, c)
-        cls_pred = self.cls_embed(decoder_out)
+        decoder_out = decoder_out.transpose(0, 1)  # (batch_size, num_queries, c)
+        
+        # Class prediction.
+        cls_pred = self.cls_embed(decoder_out) # shape (batch_size, num_queries, num_classes + 1)
+        
         # shape (num_queries, batch_size, d_l)
         cls_emb_pred = cls_pred
         if self.use_class_emb:
@@ -767,28 +781,26 @@ class Mask2FormerHeadOpen(MaskFormerHead):
 
         return cls_pred, cls_emb_pred, mask_pred, attn_mask
 
-    def forward(self, feats, img_metas):
+    def forward(self, feats, img_metas) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
         """Forward function.
 
-        Args:
-            feats (list[Tensor]): Multi scale Features from the
-                upstream network, each is a 4D-tensor.
-            img_metas (list[dict]): List of image information.
+            Args:
+                feats (list[Tensor]): Multi scale Features from the
+                    upstream network, each is a 4D-tensor.
+                img_metas (list[dict]): List of image information.
 
-        Returns:
-            tuple: A tuple contains two elements.
-
-            - cls_pred_list (list[Tensor)]: Classification logits \
-                for each decoder layer. Each is a 3D-tensor with shape \
-                (batch_size, num_queries, cls_out_channels). \
-                Note `cls_out_channels` should includes background.
-            - cls_emb_pred_list (list[Tensor]): Embedding prediction \
-                for each decoder layer. Each is a 3D-tensor with shape
-                (batch_size, num_queries, d_l). \
-                d_l is the dimension of embeddings.
-            - mask_pred_list (list[Tensor]): Mask logits for each \
-                decoder layer. Each with shape (batch_size, num_queries, \
-                 h, w).
+            Returns:
+                cls_pred_list: Classification logits
+                    for each decoder layer. Each is a 3D-tensor with shape \
+                    (batch_size, num_queries, cls_out_channels). \
+                    Note `cls_out_channels` should includes background.
+                cls_emb_pred_list: Embedding prediction \
+                    for each decoder layer. Each is a 3D-tensor with shape
+                    (batch_size, num_queries, d_l). \
+                    d_l is the dimension of embeddings.
+                mask_pred_list: Mask logits for each \
+                    decoder layer. Each with shape (batch_size, num_queries, \
+                    h, w).
         """
         batch_size = len(img_metas)
         mask_features, multi_scale_memorys = self.pixel_decoder(feats)
