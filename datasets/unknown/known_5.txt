@@ -1,5 +1,5 @@
-Neoplastic
-Inflammatory
-Connective
-Dead
-Epithelial
+neoplastic
+inflammatory
+connective
+dead
+epithelial

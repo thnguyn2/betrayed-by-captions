@@ -206,6 +206,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             class_to_emb = mmcv.load(class_to_emb_file)
             class_embs = torch.zeros((self.num_classes + 1, len(class_to_emb[0]['emb'])), dtype=torch.float)
             i = 0
+            # Copy the class embeddings from BERT to the head.
             for class_dict in class_to_emb:
                 if self.known_file:
                     if class_dict['name'] not in self.known_cat_names:

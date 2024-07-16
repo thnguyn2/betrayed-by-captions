@@ -15,12 +15,12 @@ from shapely.geometry import Polygon
 from PIL import Image
 
 _CLASS_NAMES_BY_IDS = {
-    1: "Neoplastic", 
-    2: "Inflammatory", 
-    3: "Connective", 
-    4: "Dead", 
-    5: "Epithelial", 
-    6: "Background",
+    1: "neoplastic", 
+    2: "inflammatory", 
+    3: "connective", 
+    4: "dead", 
+    5: "epithelial", 
+    6: "background",
 }
 
 _BG_CLASS_ID = 6

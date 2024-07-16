@@ -10,7 +10,7 @@ num_known_classes = num_classes - num_unknown_classes
 
 known_file = f'./datasets/unknown/known_{num_classes}.txt'
 unknown_file = f'./datasets/unknown/unknown_{num_unknown_classes}.txt'
-class_to_emb_file = f'./datasets/embeddings/coco_class_with_bert_emb.json'
+class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb.json'
 
 model = dict(
     type='Mask2FormerOpen',

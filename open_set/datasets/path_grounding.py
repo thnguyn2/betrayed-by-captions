@@ -31,7 +31,7 @@ class PathGroundOpen(CocoDatasetOpen):
     Reference:
         https://www.youtube.com/watch?v=jftZBfMZj8k
     """
-    CLASSES =  ('Neoplastic', 'Inflammatory', 'Connective', 'Dead', 'Epithelial')
+    CLASSES =  ('neoplastic', 'inflammatory', 'connective', 'dead', 'epithelial')
     def __init__(
         self,
         ann_file: str,
