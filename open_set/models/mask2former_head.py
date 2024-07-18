@@ -94,7 +94,6 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                  loss_cls_emb=None,
                  loss_grounding=None,
                  loss_caption_generation=None,
-                 loss_caption_align=None,
                  loss_mask=None,
                  loss_dice=None,
                  train_cfg=None,
@@ -168,8 +167,6 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             self._loss_grounding = build_loss(loss_grounding)
         if loss_caption_generation is not None:
             self._loss_caption_generation = build_loss(loss_caption_generation)
-        if loss_caption_align is not None:
-            self.loss_caption_align = build_loss(loss_caption_align)
         self.loss_mask = build_loss(loss_mask)
         self.loss_dice = build_loss(loss_dice)
 
@@ -407,7 +404,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         """
         num_dec_layers = len(all_layer_cls_scores)
 
-        losses_cls, losses_cls_emb, losses_grounding, losses_caption_generation, losses_caption_align, losses_mask, losses_dice = multi_apply(
+        losses_cls, losses_cls_emb, losses_grounding, losses_caption_generation, losses_mask, losses_dice = multi_apply(
             self.loss_single, all_layer_cls_scores, all_cls_emb_preds, all_layer_mask_preds,
             [gt_labels_list for _ in range(num_dec_layers)], 
             [gt_masks_list for _ in range(num_dec_layers)], 
@@ -425,7 +422,6 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             'loss_cls_emb': losses_cls_emb[-1],
             'loss_grounding': losses_grounding[-1],
             'loss_caption_generation': losses_caption_generation[-1],
-            'loss_caption_align': losses_caption_align[-1],
             'loss_mask': losses_mask[-1],
             'loss_dice': losses_dice[-1],
         }
@@ -434,13 +430,12 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             return loss_dict
         
         # loss from other decoder layers
-        for decoder_layer_idx, (loss_cls_i, loss_cls_emb_i, loss_grounding_i, losses_caption_generation_i, losses_caption_align_i, loss_mask_i, loss_dice_i) in enumerate(zip(
-                losses_cls[:-1], losses_cls_emb[:-1], losses_grounding[:-1], losses_caption_generation[:-1], losses_caption_align[:-1], losses_mask[:-1], losses_dice[:-1])):
+        for decoder_layer_idx, (loss_cls_i, loss_cls_emb_i, loss_grounding_i, losses_caption_generation_i, loss_mask_i, loss_dice_i) in enumerate(zip(
+                losses_cls[:-1], losses_cls_emb[:-1], losses_grounding[:-1], losses_caption_generation[:-1], losses_mask[:-1], losses_dice[:-1])):
             loss_dict[f'd{decoder_layer_idx}.loss_cls'] = loss_cls_i * self.loss_aux_weight
             loss_dict[f'd{decoder_layer_idx}.loss_cls_emb'] = loss_cls_emb_i * self.loss_aux_weight
             loss_dict[f'd{decoder_layer_idx}.loss_grounding'] = loss_grounding_i * self.loss_aux_weight
             loss_dict[f'd{decoder_layer_idx}.loss_caption_generation'] = losses_caption_generation_i * self.loss_aux_weight
-            loss_dict[f'd{decoder_layer_idx}.loss_caption_align'] = losses_caption_align_i * self.loss_aux_weight
             loss_dict[f'd{decoder_layer_idx}.loss_mask'] = loss_mask_i * self.loss_aux_weight
             loss_dict[f'd{decoder_layer_idx}.loss_dice'] = loss_dice_i * self.loss_aux_weight
         return loss_dict
@@ -531,14 +526,6 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             gt_caption_ids = torch.stack(gt_caption_ids_list, dim=0)[:, 1:].flatten(0, 1)  # (batch_size * (max_tokens - 1))
             loss_caption_generation = self._loss_caption_generation(caption_logits, gt_caption_ids)
             
-        loss_caption_align = loss_cls.new_tensor(0.0)
-        if self.use_caption_align:
-            loss_caption_align = self.loss_caption_align(
-                cls_emb_preds, 
-                torch.stack(gt_caption_nouns_embs_list, dim=0), 
-                torch.stack(gt_caption_nouns_mask_list, dim=0).bool()
-            )
-
         num_total_masks = max(reduce_mean(cls_scores.new_tensor([num_total_pos])), 1)
 
         # extract positive ones
@@ -548,7 +535,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             # zero match
             loss_dice = mask_preds.sum()
             loss_mask = mask_preds.sum()
-            return loss_cls, loss_cls_emb, loss_grounding, loss_caption_generation, loss_caption_align, loss_mask, loss_dice
+            return loss_cls, loss_cls_emb, loss_grounding, loss_caption_generation, loss_mask, loss_dice
 
         with torch.no_grad():
             points_coords = get_uncertain_point_coords_with_randomness(mask_preds.unsqueeze(1), None, self.num_points, self.oversample_ratio, self.importance_sample_ratio)
@@ -562,7 +549,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         mask_point_targets = mask_point_targets.reshape(-1)  # shape (num_total_gts, num_points) -> (num_total_gts * num_points, )
         loss_mask = self.loss_mask(mask_point_preds, mask_point_targets, avg_factor=num_total_masks * self.num_points)
 
-        return loss_cls, loss_cls_emb, loss_grounding, loss_caption_generation, loss_caption_align, loss_mask, loss_dice 
+        return loss_cls, loss_cls_emb, loss_grounding, loss_caption_generation, loss_mask, loss_dice 
 
     def _get_cls_emb_logits_from_cls_emb_pred(self, cls_emb_preds: torch.Tensor) -> torch.Tensor:
         """Compute prediction logits for embedding predicion head. 

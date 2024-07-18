@@ -4,8 +4,6 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-        
-
 
        {
             "name": "generate-class-embd-from-categories",
@@ -85,18 +83,18 @@
             "justMyCode": false,
         },
         {
-            "name": "pretrain-path-ground-instance-seg-single-gpu",
+            "name": "path-ground-instance-seg-single-gpu-baseline",
             "type": "debugpy",
             "request": "launch",
             "program": "./tools/train.py",
             "console": "integratedTerminal",
             "args": [
-                "configs/instance/path_ground_pretrain.py",
+                "configs/instance/path_ground_baseline.py",
             ],
             "justMyCode": false,
         },
         {
-            "name": "pretrain-path-ground-instance-seg-multi-gpu",
+            "name": "path-ground-instance-seg-multi-gpu-baseline",
             "type": "debugpy",
             "request": "launch",
             "module": "torch.distributed.launch",
@@ -113,7 +111,7 @@
                 "--master_port",
                 "29500",
                 "./tools/train.py",
-                "configs/instance/path_ground_pretrain.py",
+                "configs/instance/path_ground_baseline.py",
                 "--seed",
                 "0",
                 "--launcher",

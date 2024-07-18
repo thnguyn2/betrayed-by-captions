@@ -173,7 +173,7 @@ class CocoDatasetOpen(CustomDataset):
         self.img_ids = self.coco.get_img_ids()
         
         if self._use_reduced_size_dataset:
-            self.img_ids = self.img_ids[:400]
+            self.img_ids = self.img_ids[:120]
         
         data_infos = []
         total_ann_ids = []

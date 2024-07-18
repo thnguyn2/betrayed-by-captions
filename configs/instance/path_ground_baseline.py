@@ -1,3 +1,4 @@
+# For more information on how to configure MMDET, see https://mmdetection.readthedocs.io/en/v2.28.2/tutorials/config.html
 _base_ = [
     '../_base_/default_runtime.py'
 ]
@@ -12,9 +13,10 @@ known_file = f'./datasets/unknown/known_{num_classes}.txt'
 unknown_file = f'./datasets/unknown/unknown_{num_unknown_classes}.txt'
 class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb.json'
 embeding_type = 'pubmed-bert'
+init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining  # Class agnostic pretraining
 
 model = dict(
-    type='Mask2FormerOpen',
+    type='Mask2FormerOpen',  # Name of the model
     backbone=dict(
         type='ResNet',
         depth=50,
@@ -111,7 +113,7 @@ model = dict(
         loss_cls=dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
-            loss_weight=1.0,
+            loss_weight=0.0,
             reduction='mean',
             class_weight=[1.0] * num_known_classes + [0.1]),
         loss_cls_emb=dict(
@@ -162,29 +164,32 @@ model = dict(
         class_to_emb_file=class_to_emb_file,
         known_file=known_file,
         unknown_file=unknown_file),
+    
     train_cfg=dict(
         num_points=12544,
         oversample_ratio=3.0,
         importance_sample_ratio=0.75,
-        assigner=dict(
+        assigner=dict(  # Assigner config
             type='MaskHungarianAssignerOpen',
-            cls_cost=dict(type='ClassificationCost', weight=0.0),
+            cls_cost=dict(type='ClassificationCost', weight=1.0),
             cls_emb_cost=dict(type='ClassificationCost', weight=2.0),
             mask_cost=dict(
                 type='CrossEntropyLossCost', weight=5.0, use_sigmoid=True),
             dice_cost=dict(
                 type='DiceCost', weight=5.0, pred_act=True, eps=1.0)),
-        sampler=dict(type='MaskPseudoSampler')),
+        sampler=dict(type='MaskPseudoSampler')
+        ),
+    
     test_cfg=dict(
         eval_types=['base_results'],
         # max_per_image is for instance segmentation.
         max_per_image=100,
-        iou_thr=0.8,
+        iou_thr=0.5,
         # In Mask2Former's panoptic postprocessing,
         # it will filter mask area where score is less than 0.5 .
         filter_low_score=True,
         use_class_emb=True),
-    init_cfg=None,
+    init_cfg=dict(type='Pretrained', checkpoint=init_path),  # Use the class agnostic pretraining since pretraining takes a long time.
 )
 
 # dataset settings
@@ -192,6 +197,7 @@ image_size = (1024, 1024)
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 pad_cfg = dict(img=(128, 128, 128), masks=0, seg=255)
+
 train_pipeline = [
     dict(type='LoadImageFromFile', to_float32=True),
     dict(type='LoadOpenAnnotations', with_bbox=True, with_mask=True, with_caption=True),
@@ -200,7 +206,7 @@ train_pipeline = [
     dict(
         type='Resize',
         img_scale=image_size,
-        ratio_range=(0.1, 2.0),
+        ratio_range=(0.8, 1.5),
         multiscale_mode='range',
         keep_ratio=True),
     dict(
@@ -216,11 +222,12 @@ train_pipeline = [
     dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels', 'gt_masks',
         'gt_caption_ids', 'gt_caption_mask', 'gt_caption_nouns_ids', 'gt_caption_nouns_mask']),
 ]
+
 test_pipeline = [
     dict(type='LoadImageFromFile'),
     dict(
         type='MultiScaleFlipAug',
-        img_scale=(1333, 800),
+        img_scale=image_size,
         flip=False,
         transforms=[
             dict(type='Resize', keep_ratio=True),
@@ -235,23 +242,15 @@ test_pipeline = [
 dataset_type = 'PathGroundOpen'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged/'
 
-# dataset_type = 'CocoDatasetOpen'
-# data_root = '/jupyter-users-home/tan-2enguyen/datasets/detectron2/coco/'
-
+minibatch_size = 5
 data = dict(
     _delete_=True,
-    samples_per_gpu=1,
-    workers_per_gpu=1,
+    samples_per_gpu=minibatch_size,
+    workers_per_gpu=minibatch_size,
     train=dict(
         type=dataset_type,
-        
-        # ann_file=data_root + 'annotations/instances_train2017.json',
-        # caption_ann_file=data_root + 'annotations/captions_train2017.json',
-        # img_prefix=data_root + 'train2017/',
-        # pipeline=train_pipeline,
-        
-        ann_file=data_root + 'annotations/train_instances.json',
-        caption_ann_file=data_root + 'annotations/train_captions.json',
+        ann_file=data_root + 'annotations_region_only/train_instances.json',
+        caption_ann_file=data_root + 'annotations_region_only/train_captions.json',
         img_prefix=data_root + 'images/',
         transform_pipeline=train_pipeline,
         
@@ -259,32 +258,27 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        emb_type=embeding_type),
+        emb_type=embeding_type,
+        use_reduced_size_dataset=False,
+        ),
+    
     val=dict(
         type=dataset_type,
-        
-        # ann_file=data_root + 'annotations/instances_val2017.json',
-        # caption_ann_file=data_root + 'annotations/captions_val2017.json',
-        # img_prefix=data_root + 'val2017/',
-        # pipeline=test_pipeline,
-        
         ann_file=data_root + 'annotations/val_instances.json',
         caption_ann_file=data_root + 'annotations/val_captions.json',
+        
         img_prefix=data_root + 'images/',
         transform_pipeline=test_pipeline,
         
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['base_results'],),
+        eval_types=['base_results'],
+        use_reduced_size_dataset=False,    
+    ),
+    
     test=dict(
         type=dataset_type,
-        
-        # ann_file=data_root + 'annotations/instances_val2017.json',
-        # caption_ann_file=data_root + 'annotations/captions_val2017.json',
-        # img_prefix=data_root + 'val2017/',
-        # pipeline=test_pipeline,
-        
         ann_file=data_root + 'annotations/val_instances.json',
         caption_ann_file=data_root + 'annotations/val_captions.json',
         img_prefix=data_root + 'images/',
@@ -293,7 +287,9 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['base_results'],),
+        eval_types=['base_results'],
+        use_reduced_size_dataset=False
+        ),
     )
 
 embed_multi = dict(lr_mult=1.0, decay_mult=0.0)
@@ -325,20 +321,24 @@ lr_config = dict(
     warmup_ratio=1.0,  # no warmup
     warmup_iters=10)
 
-max_epochs = 12
-runner = dict(type='EpochBasedRunner', max_epochs=max_epochs)
+runner = dict(
+    type='EpochBasedRunner', 
+    max_epochs=1000,
+)
 
-# log_config = dict(
-#     interval=100,
-#     hooks=[
-#         dict(type='TextLoggerHook', by_epoch=False),
-#         dict(type='TensorboardLoggerHook', by_epoch=False)
-#     ])
-# workflow = [('train', 1)]
-# checkpoint_config = dict(
-#     by_epoch=True, interval=1, save_last=True, max_keep_ckpts=2)
+log_config = dict(
+    interval=20,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
+    hooks=[
+        dict(type='TextLoggerHook', by_epoch=False),
+        dict(type='TensorboardLoggerHook', by_epoch=False)
+    ])
+workflow = [('train', 1)]
 
-# evaluation = dict(
-#     interval=max_epochs,
-#     metric=['bbox', 'segm'],
-#     classwise=True)
+checkpoint_config = dict(
+    by_epoch=True, interval=50, save_last=True, max_keep_ckpts=2) 
+
+evaluation = dict(
+    interval=20,  # in the unit of epochs.
+    metric=['bbox', 'segm'],
+    classwise=True
+)

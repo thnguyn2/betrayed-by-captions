@@ -4,11 +4,13 @@ import copy
 import mmcv
 import numpy as np
 import torch
+from typing import Dict, List, Union
 
 from mmdet.core import INSTANCE_OFFSET, bbox2result
 from ..core.visualization import imshow_det_bboxes
 from mmdet.models.builder import DETECTORS, build_backbone, build_head, build_neck
 from mmdet.models.detectors.single_stage import SingleStageDetector
+from mmdet.core.mask.structures import BitmapMasks
 
 
 @DETECTORS.register_module()
@@ -50,18 +52,13 @@ class MaskFormerOpen(SingleStageDetector):
         if self.num_stuff_classes > 0:
             self.show_result = self._show_pan_result
 
-    def forward_dummy(self, img):
+    def forward_dummy(self, img: torch.Tensor):
         """Used for computing network flops. See
         `mmdetection/tools/analysis_tools/get_flops.py`
 
         Args:
-            img (Tensor): of shape (N, C, H, W) encoding input images.
+            img: An image shape (N, C, H, W) encoding input images.
                 Typically these should be mean centered and std scaled.
-            img_metas (list[Dict]): list of image info dict where each dict
-                has: 'img_shape', 'scale_factor', 'flip', and may also contain
-                'filename', 'ori_shape', 'pad_shape', and 'img_norm_cfg'.
-                For details on the values of these keys see
-                `mmdet/datasets/pipelines/formatting.py:Collect`.
         """
         img_metas = [{'img_shape': [1280, 800]}]
         super(SingleStageDetector, self).forward_train(img, img_metas)
@@ -78,66 +75,56 @@ class MaskFormerOpen(SingleStageDetector):
         return outs
 
     def forward_train(self,
-                      img,
-                      img_metas,
-                      gt_bboxes,
-                      gt_labels,
-                      gt_masks,
-                      gt_caption_ids=None,
-                      gt_caption_mask=None,
-                      gt_caption_nouns_ids=None,
-                      gt_caption_nouns_mask=None,
+                      img: torch.Tensor,
+                      img_metas: List[Dict],
+                      gt_bboxes: List[torch.Tensor],
+                      gt_labels: List[torch.Tensor],
+                      gt_masks: List[BitmapMasks],
+                      gt_caption_ids: List[torch.Tensor] =None,
+                      gt_caption_mask: List[torch.Tensor] =None,
+                      gt_caption_nouns_ids: List[torch.Tensor]=None,
+                      gt_caption_nouns_mask: List[torch.Tensor]=None,
                       gt_semantic_seg=None,
                       gt_bboxes_ignore=None,
-                      **kwargs):
-        """
+                      **kwargs) -> Dict[str, torch.Tensor]:
+        """Performs a single training step.
+        
         Args:
-            img (Tensor): of shape (N, C, H, W) encoding input images.
-                Typically these should be mean centered and std scaled.
-            img_metas (list[Dict]): list of image info dict where each dict
-                has: 'img_shape', 'scale_factor', 'flip', and may also contain
-                'filename', 'ori_shape', 'pad_shape', and 'img_norm_cfg'.
-                For details on the values of these keys see
+            img: A tensor of shape (B, C, H, W) encoding input images. Typically these should be mean centered and std scaled.
+            img_metas: A list of image info dict where each dict has: 'img_shape', 'scale_factor', 'flip', and may also contain
+                'filename', 'ori_shape', 'pad_shape', and 'img_norm_cfg'. For details on the values of these keys see
                 `mmdet/datasets/pipelines/formatting.py:Collect`.
-            gt_bboxes (list[Tensor]): Ground truth bboxes for each image with
-                shape (num_gts, 4) in [tl_x, tl_y, br_x, br_y] format.
-            gt_labels (list[Tensor]): class indices corresponding to each box.
-            gt_masks (list[BitmapMasks]): true segmentation masks for each box
-                used if the architecture supports a segmentation task.
-            gt_semantic_seg (list[tensor]): semantic segmentation mask for
-                images for panoptic segmentation.
-                Defaults to None for instance segmentation.
-            gt_bboxes_ignore (list[Tensor]): specify which bounding
-                boxes can be ignored when computing the loss.
-                Defaults to None.
+            gt_bboxes: Ground truth bboxes for each image with shape (num_gts, 4) in [tl_x, tl_y, br_x, br_y] format.
+            gt_labels: Class indices corresponding to the boxes.
+            gt_masks: A list of segmentation masks for each box used if the architecture supports a segmentation task.
+            gt_caption_ids: A list of token ids for the caption words.
+            gt_caption_mask: A list of masks for the caption words.
+            gt_caption_nouns_ids: A list of token ids for the nouns in the caption.
+            gt_caption_nouns_mask: A list of maks for the nouns in the caption.
             kwargs:
                 gt_cat_names (list[list[str]]): List of List of category names
                 of the corresponding label in gt_labels
 
         Returns:
-            dict[str, Tensor]: a dictionary of loss components
+            A dictionary of loss components
+            
+        Reference:
+            https://mmdetection.readthedocs.io/en/latest/user_guides/config.html
         """
         # add batch_input_shape in img_metas
         super(SingleStageDetector, self).forward_train(img, img_metas)
         x = self.extract_feat(img)
-        losses = self.panoptic_head.forward_train(x, img_metas, gt_bboxes,
-                                                  gt_labels, gt_masks,
-                                                  gt_semantic_seg,
-                                                  gt_caption_ids,
-                                                  gt_caption_mask,
-                                                  gt_caption_nouns_ids,
-                                                  gt_caption_nouns_mask,
-                                                  gt_bboxes_ignore,
-                                                  **kwargs)
+        losses = self.panoptic_head.forward_train(x, img_metas, gt_bboxes, gt_labels, gt_masks, gt_semantic_seg, gt_caption_ids,
+                                                  gt_caption_mask, gt_caption_nouns_ids, gt_caption_nouns_mask, gt_bboxes_ignore, **kwargs)
 
         return losses
 
-    def simple_test(self, imgs, img_metas, **kwargs):
-        """Test without augmentation.
+    def simple_test(self, imgs: torch.Tensor, img_metas, **kwargs):
+        """Test without augmentation, often used for inference
 
         Args:
-            imgs (Tensor): A batch of images.
-            img_metas (list[dict]): List of image information.
+            imgs: A batch of images.
+            img_metas: List of image information.
             **kwargs (list[list[Tensor]]): In visualization mode, gt_labels, gt_masks and
                 other annotations
 
