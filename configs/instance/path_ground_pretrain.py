@@ -240,8 +240,8 @@ data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_me
 
 data = dict(
     _delete_=True,
-    samples_per_gpu=3,
-    workers_per_gpu=3,
+    samples_per_gpu=1,
+    workers_per_gpu=1,
     train=dict(
         type=dataset_type,
         

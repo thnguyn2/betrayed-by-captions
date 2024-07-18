@@ -4,6 +4,8 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
+
        {
             "name": "generate-class-embd-from-categories",
             "type": "debugpy",
@@ -111,6 +113,10 @@
                 "29500",
                 "./tools/train.py",
                 "configs/instance/path_ground_pretrain.py",
+                "--seed",
+                "0",
+                "--launcher",
+                "pytorch",
             ],
         },
         {
@@ -166,7 +172,8 @@
                 "./tools/test.py",
                 "configs/instance/coco_b48n17.py",
                 "checkpoints/coco_instance_ag3x_1x.pth",
-                "--launcher""pytorch",
+                "--launcher",
+                "pytorch",
                 "--eval",
                 "bbox",
                 "segm",

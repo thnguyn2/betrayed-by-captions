@@ -1,10 +1,10 @@
 """A module that defines a custom dataset for pathology grounding."""
 import mmcv
+import numpy as np
 from mmdet.datasets.builder import DATASETS
 from typing import Dict, List, Optional
 from mmdet.datasets.api_wrappers import COCO
 from .coco_open import CocoDatasetOpen
-import transformers
 from open_set.models.utils.bert_embeddings import BERT_MODEL_BY_EMBEDDING_TYPES
 
 @DATASETS.register_module()
@@ -79,4 +79,27 @@ class PathGroundOpen(CocoDatasetOpen):
             nouns_parser=nouns_parser,
             use_reduced_size_dataset=use_reduced_size_dataset,
         )
-        
+    
+    def get_ann_info(self, idx):
+        """Get COCO annotation by index.
+
+        Args:
+            idx (int): Index of data.
+
+        Returns:
+            dict: Annotation info of specified index.
+        """
+
+        data_info = self.data_infos[idx].copy()
+        img_id = data_info['id']
+        ann_ids = self.coco.get_ann_ids(img_ids=[img_id])
+        ann_info = self.coco.load_anns(ann_ids)
+        if self.coco_caption is not None:
+            caption_ann_ids = self.coco_caption.get_ann_ids(img_ids=[img_id])
+            caption_ann_info = self.coco_caption.load_anns(caption_ann_ids)
+            # During training, randomly choose a caption as gt.
+            random_idx = np.random.randint(0, len(caption_ann_info))
+            caption = caption_ann_info[random_idx]["caption"]
+            data_info["caption"] = caption
+            data_info["caption_nouns"] = " ".join(self._extract_nouns_from_caption(caption))
+        return self._parse_ann_info(data_info, ann_info)

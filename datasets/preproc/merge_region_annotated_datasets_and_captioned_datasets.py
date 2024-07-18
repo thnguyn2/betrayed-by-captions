@@ -100,6 +100,7 @@ def _generate_region_segmentation_annotation_file(
             current_metadata = json.load(file)
             old_id_to_new_id: Dict[int, int] = {}
             for image_info in current_metadata['images']:
+                
                 old_image_path = str(Path(_DATASETS_IMG_FOLDERS_BY_NAME[dataset_name]) / image_info['file_name'])
                 new_image_id = image_path_to_new_id[old_image_path]
                 old_id_to_new_id[image_info['id']] = new_image_id
@@ -152,9 +153,9 @@ def _generate_caption_annotation_files(
     image_path_to_new_id: Dict[str, int],
     annotation_folder: Path,
 ) -> None:
-    new_all_images_info = []
+    all_datasets_images_info = []
     new_caption_id = 1
-    new_all_captions_info = []
+    all_datasets_captions_info = []
     out_metadata = {
         "info": _create_dataset_info(),
         "licenses": _create_dataset_license_info(),
@@ -163,47 +164,51 @@ def _generate_caption_annotation_files(
         logging.info(f"Merging {dataset_name}.")
         
         with open(anno_file, "r") as file:
-            current_metadata = json.load(file)
-            old_id_to_new_id: Dict[int, int] = {}
-            for image_info in current_metadata['images']:
-                old_image_path = str(Path(_DATASETS_IMG_FOLDERS_BY_NAME[dataset_name]) / image_info['file_name'])
-                new_image_id = image_path_to_new_id[old_image_path]
-                old_id_to_new_id[image_info['id']] = new_image_id
-                image_info['id'] = new_image_id
-                image_info['file_name'] = _image_id_to_file_name(image_id=new_image_id)
-                new_all_images_info.append(image_info)
-                
+            private_metadata = json.load(file)
+            private_id_to_combined_id: Dict[int, int] = {}
             
-            # Combines multiple classes into a single sentence for segmentation dataset.
-            object_classes_by_image_id: Dict[int, List[str]] = defaultdict(list)
-            for anno_info in current_metadata['annotations']:
-                if 'segmentation' in anno_info:
-                    image_id = anno_info['image_id']
-                    current_category = current_metadata['categories'][anno_info['category_id']]
-                    object_classes_by_image_id[image_id].append(f"{current_category['name'].lower()} {current_category['supercategory'].lower()}")
-                
-            for image_id, classes in object_classes_by_image_id.items():
-                caption_info = {
-                    'id': new_caption_id,
-                    'image_id': old_id_to_new_id[image_id],
-                    'caption': ", ".join(f"{cls}" for cls in  classes)
+            for private_image_info in private_metadata['images']:
+                combined_image_id = image_path_to_new_id[str(Path(_DATASETS_IMG_FOLDERS_BY_NAME[dataset_name]) / private_image_info['file_name'])]
+                private_id_to_combined_id[private_image_info['id']] = combined_image_id
+                combined_image_info = {
+                    'id': combined_image_id,
+                    'file_name': _image_id_to_file_name(image_id=combined_image_id)
                 }
-                new_all_captions_info.append(caption_info)
-                new_caption_id += 1
+                all_datasets_images_info.append(combined_image_info)
+            
+            
+            if 'segmentation' in next(iter(private_metadata['annotations'])):
+                synthetic_captions_by_image_id: Dict[int, List[str]] = defaultdict(list)
+                # Generate synthetic captions from region class
+                for private_anno_info in private_metadata['annotations']:
+                    private_image_id = private_anno_info['image_id']
+                    current_category = private_metadata['categories'][private_anno_info['category_id']]
+                    synthetic_captions_by_image_id[private_image_id].append(f"{current_category['name'].lower()} {current_category['supercategory'].lower()}")
                 
-            if len(object_classes_by_image_id) == 0:
-                print(f"Caption dataset observed!")
-                for anno_info in current_metadata['annotations']:
-                    caption_info = {
+                synthetic_captions_by_image_id = {k: v for k, v in synthetic_captions_by_image_id.items() if len(v) == 0}
+                
+                for private_image_id, captions in synthetic_captions_by_image_id.items():    
+                    combined_caption_info = {
                         'id': new_caption_id,
-                        'image_id': old_id_to_new_id[anno_info['image_id']],
-                        'caption': anno_info['caption'],
+                        'image_id': private_id_to_combined_id[private_image_id],
+                        'caption': ", ".join(f"{cap}" for cap in  captions)
+                    }
+                    all_datasets_captions_info.append(combined_caption_info)
+                    new_caption_id += 1
+            else:
+                for private_anno_info in private_metadata['annotations']:
+                    combined_caption_info = {
+                        'id': new_caption_id,
+                        'image_id': private_id_to_combined_id[private_anno_info['image_id']],
+                        'caption': private_anno_info['caption'],
                     }
                     new_caption_id += 1
-                    new_all_captions_info.append(caption_info)
-                
-    out_metadata['images'] = new_all_images_info
-    out_metadata['annotations'] = new_all_captions_info
+                    all_datasets_captions_info.append(combined_caption_info)
+            
+    # Filter all image with no captions
+    combined_image_ids_with_captions = [cap_info['image_id'] for cap_info in all_datasets_captions_info]
+    out_metadata['images'] = [x for x in all_datasets_images_info if x['id'] in combined_image_ids_with_captions]
+    out_metadata['annotations'] = all_datasets_captions_info
     
     meta_json = json.dumps(out_metadata)
     with open(str(annotation_folder / f"{split}_captions.json"), "w") as json_file:

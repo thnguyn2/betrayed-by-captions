@@ -11,7 +11,8 @@ num_known_classes = num_classes - num_unknown_classes
 known_file = f'./datasets/unknown/known_{num_classes}.txt'
 unknown_file = f'./datasets/unknown/unknown_{num_unknown_classes}.txt'
 class_to_emb_file = f'./datasets/embeddings/coco_class_with_bert_emb.json'
-init_path = './pretrained/class_ag_pretrained_3x.pth'
+#init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining
+init_path = './checkpoints/coco_instance_ag3x_1x.pth'  # From the last checkpoint
 
 model = dict(
     type='Mask2FormerOpen',
