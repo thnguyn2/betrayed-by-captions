@@ -108,7 +108,6 @@ def _generate_region_segmentation_annotation_file(
                 image_info['file_name'] = _image_id_to_file_name(image_id=new_image_id)
                 new_all_images_info.append(image_info)
                 
-             
             for anno_info in current_metadata['annotations']:
                 if 'segmentation' in anno_info:
                     anno_info['id'] = new_anno_id
@@ -120,8 +119,10 @@ def _generate_region_segmentation_annotation_file(
             if 'categories' in current_metadata:
                 out_metadata['categories'] = current_metadata['categories']
 
-    out_metadata['images'] = new_all_images_info
     out_metadata['annotations'] = new_all_seg_anno_info
+    # Don't save information of images without region annotations.
+    all_image_ids_with_annotations = list({x['image_id'] for x in new_all_seg_anno_info})
+    out_metadata['images'] = [x for x in new_all_images_info if x['id'] in all_image_ids_with_annotations]
     
     meta_json = json.dumps(out_metadata)
     with open(str(annotation_folder / f"{split}_instances.json"), "w") as json_file:
@@ -185,7 +186,7 @@ def _generate_caption_annotation_files(
                     current_category = private_metadata['categories'][private_anno_info['category_id']]
                     synthetic_captions_by_image_id[private_image_id].append(f"{current_category['name'].lower()} {current_category['supercategory'].lower()}")
                 
-                synthetic_captions_by_image_id = {k: v for k, v in synthetic_captions_by_image_id.items() if len(v) == 0}
+                synthetic_captions_by_image_id = {k: v for k, v in synthetic_captions_by_image_id.items() if len(v) > 0}
                 
                 for private_image_id, captions in synthetic_captions_by_image_id.items():    
                     combined_caption_info = {
@@ -193,8 +194,10 @@ def _generate_caption_annotation_files(
                         'image_id': private_id_to_combined_id[private_image_id],
                         'caption': ", ".join(f"{cap}" for cap in  captions)
                     }
+                        
                     all_datasets_captions_info.append(combined_caption_info)
                     new_caption_id += 1
+                    
             else:
                 for private_anno_info in private_metadata['annotations']:
                     combined_caption_info = {
