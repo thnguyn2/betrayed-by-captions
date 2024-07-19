@@ -256,7 +256,10 @@ class MaskFormerOpen(SingleStageDetector):
         """
         img = mmcv.imread(img)
         img = img.copy()
-        all_result = result['all_results']
+        if 'all_results' in result:
+            all_result = result['all_results']
+        else:
+            all_result = result['base_results']
         bbox_result, segm_result = all_result
         bboxes = np.vstack(bbox_result)
         labels = [
