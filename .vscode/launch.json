@@ -4,6 +4,8 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
+
         {
             "address": "TCP/IP address of process to be debugged",
             "localRoot": "${workspaceFolder}",
@@ -134,7 +136,7 @@
                 "--master_port",
                 "29500",
                 "./tools/train.py",
-                "configs/instance/path_ground_baseline.py",
+                "configs/instance/path_ground_with_unknowns.py",
                 "--seed",
                 "0",
                 "--launcher",

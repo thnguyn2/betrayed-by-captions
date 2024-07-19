@@ -93,27 +93,36 @@ def _generate_region_segmentation_annotation_file(
         "info": _create_dataset_info(),
         "licenses": _create_dataset_license_info(),
     }
+    image_ids_with_from_region_anno_but_no_anno = []
     for dataset_name, anno_file in anno_dict_by_name.items():
+        region_annotation_dataset = False
         logging.info(f"Merging {dataset_name}.")
         
         with open(anno_file, "r") as file:
             current_metadata = json.load(file)
             old_id_to_new_id: Dict[int, int] = {}
+            new_image_ids_in_current_set = []
             for image_info in current_metadata['images']:
-                
                 old_image_path = str(Path(_DATASETS_IMG_FOLDERS_BY_NAME[dataset_name]) / image_info['file_name'])
                 new_image_id = image_path_to_new_id[old_image_path]
                 old_id_to_new_id[image_info['id']] = new_image_id
-                image_info['id'] = new_image_id
-                image_info['file_name'] = _image_id_to_file_name(image_id=new_image_id)
-                new_all_images_info.append(image_info)
+                combined_image_info = image_info.copy()
+                combined_image_info['id'] = new_image_id
+                combined_image_info['file_name'] = _image_id_to_file_name(image_id=new_image_id)
+                new_image_ids_in_current_set.append(new_image_id)
+                new_all_images_info.append(combined_image_info)
                 
             for anno_info in current_metadata['annotations']:
                 if 'segmentation' in anno_info:
+                    region_annotation_dataset = True
                     anno_info['id'] = new_anno_id
                     anno_info['image_id'] = old_id_to_new_id[anno_info['image_id']]
                     new_all_seg_anno_info.append(anno_info)
                     new_anno_id += 1
+            
+            if region_annotation_dataset:
+                annotated_image_ids = set(x['image_id'] for x in new_all_seg_anno_info)
+                image_ids_with_from_region_anno_but_no_anno = set(new_image_ids_in_current_set).difference(annotated_image_ids)
             
             # TODO: add extra code to handle different image categories.
             if 'categories' in current_metadata:
@@ -121,8 +130,7 @@ def _generate_region_segmentation_annotation_file(
 
     out_metadata['annotations'] = new_all_seg_anno_info
     # Don't save information of images without region annotations.
-    all_image_ids_with_annotations = list({x['image_id'] for x in new_all_seg_anno_info})
-    out_metadata['images'] = [x for x in new_all_images_info if x['id'] in all_image_ids_with_annotations]
+    out_metadata['images'] = [x for x in new_all_images_info if x['id'] not in image_ids_with_from_region_anno_but_no_anno]
     
     meta_json = json.dumps(out_metadata)
     with open(str(annotation_folder / f"{split}_instances.json"), "w") as json_file:

@@ -103,3 +103,5 @@ class PathGroundOpen(CocoDatasetOpen):
             data_info["caption"] = caption
             data_info["caption_nouns"] = " ".join(self._extract_nouns_from_caption(caption))
         return self._parse_ann_info(data_info, ann_info)
+    
+    

@@ -242,7 +242,7 @@ test_pipeline = [
 dataset_type = 'PathGroundOpen'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged/'
 
-minibatch_size = 1
+minibatch_size = 2
 data = dict(
     _delete_=True,
     samples_per_gpu=minibatch_size,
@@ -327,7 +327,7 @@ runner = dict(
 )
 
 log_config = dict(
-    interval=20,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
+    interval=200,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)
@@ -335,10 +335,10 @@ log_config = dict(
 workflow = [('train', 1)]
 
 checkpoint_config = dict(
-    by_epoch=True, interval=50, save_last=True, max_keep_ckpts=2) 
+    by_epoch=True, interval=2, save_last=True, max_keep_ckpts=2) 
 
 evaluation = dict(
-    interval=20,  # in the unit of epochs.
+    interval=1,  # in the unit of epochs.
     metric=['bbox', 'segm'],
     classwise=True
 )
