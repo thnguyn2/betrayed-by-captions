@@ -5,10 +5,8 @@ transformers
 ftfy
 regex
 tqdm
-spacy
-medspaCy
 clip
-lvis==3.7.5
+lvis
 quickumls
 nltk
 git+https://github.com/cocodataset/panopticapi.git

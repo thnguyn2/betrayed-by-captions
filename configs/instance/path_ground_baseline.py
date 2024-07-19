@@ -242,7 +242,7 @@ test_pipeline = [
 dataset_type = 'PathGroundOpen'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged/'
 
-minibatch_size = 5
+minibatch_size = 2
 data = dict(
     _delete_=True,
     samples_per_gpu=minibatch_size,
@@ -264,8 +264,8 @@ data = dict(
     
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/val_instances.json',
-        caption_ann_file=data_root + 'annotations/val_captions.json',
+        ann_file=data_root + 'annotations_region_only/val_instances.json',
+        caption_ann_file=data_root + 'annotations_region_only/val_captions.json',
         
         img_prefix=data_root + 'images/',
         transform_pipeline=test_pipeline,
@@ -279,8 +279,8 @@ data = dict(
     
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations/val_instances.json',
-        caption_ann_file=data_root + 'annotations/val_captions.json',
+        ann_file=data_root + 'annotations_region_only/val_instances.json',
+        caption_ann_file=data_root + 'annotations_region_only/val_captions.json',
         img_prefix=data_root + 'images/',
         transform_pipeline=test_pipeline,
         
