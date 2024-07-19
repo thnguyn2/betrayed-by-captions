@@ -1,5 +1,7 @@
 
 from absl import logging
+from collections import Counter
+
 import pandas as pd
 from pathlib import Path
 import spacy
@@ -21,20 +23,27 @@ def _generate_categories():
                 for concept in entities:
                     all_concepts.append(concept['entity'].lower())
     
+    count_by_concepts = Counter(all_concepts)
     all_concepts = list(set(all_concepts))
     print(f"Found {len(all_concepts)} categories!")
     
     nlp = spacy.load("en_core_web_sm")
     
-    lemmatized_concepts = []
-    for c in tqdm(all_concepts):
-        lemmatized_concepts.append(_process_concept_name(nlp=nlp, concept=c))
-    lemmatized_concepts = list(set(lemmatized_concepts))
-    print(f"Found {len(lemmatized_concepts)} categories after lemmatization")
+    count_by_lemmatized_concepts: Dict[str, int] = {}
+    for concept, count in tqdm(count_by_concepts.items()):
+        lemmatized_concept = _process_concept_name(nlp=nlp, concept=concept)
+        if lemmatized_concept not in count_by_lemmatized_concepts:
+            count_by_lemmatized_concepts[lemmatized_concept] = count
+        else:
+            count_by_lemmatized_concepts[lemmatized_concept] += count
     
-    json_obj = json.dumps(lemmatized_concepts)
+    lemmatized_concepts = list(set(count_by_lemmatized_concepts.keys()))
+    print(f"Found {len(count_by_lemmatized_concepts)} categories after lemmatization")
     with open("open_set/datasets/utils/quilt_categories.json", "w") as file:
-        file.write(json_obj)
+        file.write(json.dumps(lemmatized_concepts))
+        
+    with open("open_set/datasets/utils/count_by_quilt_categories.json", "w") as file:
+        file.write(json.dumps({k: v for k, v in sorted(count_by_lemmatized_concepts.items(), key=lambda x: x[1], reverse=True)}))
 
 def _process_concept_name(nlp, concept: str) -> str:
     """Performs tokenization, lemmatizatio (to account for morphological variations), and skip the part in the parenthesis."""

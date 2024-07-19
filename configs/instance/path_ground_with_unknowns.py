@@ -3,14 +3,14 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-num_things_classes = 5 + 0
+num_things_classes = 5 + 18
 num_stuff_classes = 0
-num_unknown_classes = 0
+num_unknown_classes = 18
 num_classes = num_things_classes + num_stuff_classes
 num_known_classes = num_classes - num_unknown_classes
 
 known_file = f'./datasets/unknown/path_ground_known_{num_classes}.txt'
-unknown_file = f'./datasets/unknown/unknown_{num_unknown_classes}.txt'
+unknown_file = f'./datasets/unknown/path_ground_unknown_{num_unknown_classes}.txt'
 class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb.json'
 embeding_type = 'pubmed-bert'
 init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining  # Class agnostic pretraining
@@ -249,8 +249,8 @@ data = dict(
     workers_per_gpu=minibatch_size,
     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations_region_only/train_instances.json',
-        caption_ann_file=data_root + 'annotations_region_only/train_captions.json',
+        ann_file=data_root + 'annotations_mixed/train_instances.json',
+        caption_ann_file=data_root + 'annotations_mixed/train_captions.json',
         img_prefix=data_root + 'images/',
         transform_pipeline=train_pipeline,
         
@@ -264,8 +264,8 @@ data = dict(
     
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations_region_only/val_instances.json',
-        caption_ann_file=data_root + 'annotations_region_only/val_captions.json',
+        ann_file=data_root + 'annotations_mixed/val_instances.json',
+        caption_ann_file=data_root + 'annotations_mixed/val_captions.json',
         
         img_prefix=data_root + 'images/',
         transform_pipeline=test_pipeline,
@@ -279,8 +279,8 @@ data = dict(
     
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations_region_only/val_instances.json',
-        caption_ann_file=data_root + 'annotations_region_only/val_captions.json',
+        ann_file=data_root + 'annotations_mixed/val_instances.json',
+        caption_ann_file=data_root + 'annotations_mixed/val_captions.json',
         img_prefix=data_root + 'images/',
         transform_pipeline=test_pipeline,
         
@@ -296,7 +296,7 @@ embed_multi = dict(lr_mult=1.0, decay_mult=0.0)
 # optimizer
 optimizer = dict(
     type='AdamW',
-    lr=0.0001,
+    lr=0.00005,
     weight_decay=0.05,
     eps=1e-8,
     betas=(0.9, 0.999),
