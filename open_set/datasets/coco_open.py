@@ -136,14 +136,14 @@ class CocoDatasetOpen(CustomDataset):
         elif nouns_parser == 'imagenet':
             self.parser = ImageNet21KParser()
 
-    def load_annotations(self, ann_file):
+    def load_annotations(self, ann_file: str) -> List[Dict]:
         """Load annotation from COCO style annotation file.
 
         Args:
-            ann_file (str): Path of annotation file.
+            ann_file: Path to annotation file.
 
         Returns:
-            list[dict]: Annotation info from COCO api.
+            A list of annotation id lists, 1 inner list for 1 image id, from COCO api.
         """
 
         self.coco = COCO(ann_file)
@@ -198,9 +198,8 @@ class CocoDatasetOpen(CustomDataset):
             idx: Index of data.
 
         Returns:
-            dict: Annotation info of specified index.
+            Annotation info of specified index.
         """
-
         data_info = self.data_infos[idx].copy()
         img_id = data_info['id']
         ann_ids = self.coco.get_ann_ids(img_ids=[img_id])
@@ -223,14 +222,14 @@ class CocoDatasetOpen(CustomDataset):
         unique_nns = list(set(unique_nns))
         return unique_nns
 
-    def get_cat_ids(self, idx):
+    def get_cat_ids(self, idx: int) -> List[int]:
         """Get COCO category ids by index.
 
         Args:
-            idx (int): Index of data.
+            idx: Index of data.
 
         Returns:
-            list[int]: All categories in the image of specified index.
+            All categories in the image of specified index.
         """
 
         img_id = self.data_infos[idx]['id']
@@ -260,12 +259,12 @@ class CocoDatasetOpen(CustomDataset):
             valid_img_ids.append(img_id)
         return valid_img_ids
 
-    def _parse_ann_info(self, img_info, ann_info):
+    def _parse_ann_info(self, img_info: Dict, ann_info: List[Dict]):
         """Parse bbox, mask, category, caption annotation.
 
         Args:
-            img_info (dict): Information of the image and caption annotaion.
-            ann_info (list[dict]): Annotation info of an image.
+            img_info: Information of the image and caption annotaion.
+            ann_info: Annotation info of an image.
 
         Returns:
             dict: A dict containing the following keys: bboxes, bboxes_ignore,\
@@ -291,6 +290,8 @@ class CocoDatasetOpen(CustomDataset):
             
             # unknown has no annotations
             cat_id = ann['category_id']
+            
+            
             if cat_id not in self.all_cat_ids or cat_id in self.unknown_cat_ids:
                 continue
             bbox = [x1, y1, x1 + w, y1 + h]
@@ -304,7 +305,7 @@ class CocoDatasetOpen(CustomDataset):
                 else:
                     gt_labels.append(self.cat2label[ann['category_id']])
                 gt_masks_ann.append(ann.get('segmentation', None))
-
+            
         if gt_bboxes:
             gt_bboxes = np.array(gt_bboxes, dtype=np.float32)
             gt_labels = np.array(gt_labels, dtype=np.int64)

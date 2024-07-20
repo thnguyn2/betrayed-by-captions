@@ -242,7 +242,7 @@ test_pipeline = [
 dataset_type = 'PathGroundOpen'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged/'
 
-minibatch_size = 2
+minibatch_size = 1
 data = dict(
     _delete_=True,
     samples_per_gpu=minibatch_size,

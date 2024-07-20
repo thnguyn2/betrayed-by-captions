@@ -10,7 +10,7 @@ num_classes = num_things_classes + num_stuff_classes
 num_known_classes = num_classes - num_unknown_classes
 
 known_file = f'./datasets/unknown/path_ground_known_{num_classes}.txt'
-unknown_file = f'./datasets/unknown/path_ground_unknown_{num_unknown_classes}.txt'
+unknown_file = None  # Don't use an empty file, it will create a class name of ''
 class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb.json'
 embeding_type = 'pubmed-bert'
 init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining  # Class agnostic pretraining
@@ -327,7 +327,7 @@ runner = dict(
 )
 
 log_config = dict(
-    interval=20,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
+    interval=100,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)
@@ -335,10 +335,10 @@ log_config = dict(
 workflow = [('train', 1)]
 
 checkpoint_config = dict(
-    by_epoch=True, interval=50, save_last=True, max_keep_ckpts=2) 
+    by_epoch=True, interval=5, save_last=True, max_keep_ckpts=2) 
 
 evaluation = dict(
-    interval=20,  # in the unit of epochs.
+    interval=5,  # in the unit of epochs.
     metric=['bbox', 'segm'],
     classwise=True
 )

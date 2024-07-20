@@ -764,6 +764,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
 
         gt_labels, gt_masks = self.preprocess_gt(gt_labels, gt_masks, gt_semantic_seg, img_metas)
 
+        
         gt_caption_embs, gt_caption_nouns_embs = None, None
         if self.use_caption_generation:
             gt_caption_embs, gt_caption_mask = self._extract_word_embeddings(gt_caption_ids, gt_caption_mask, self.caption_gen_emb_type)

@@ -80,28 +80,4 @@ class PathGroundOpen(CocoDatasetOpen):
             use_reduced_size_dataset=use_reduced_size_dataset,
         )
     
-    def get_ann_info(self, idx):
-        """Get COCO annotation by index.
-
-        Args:
-            idx (int): Index of data.
-
-        Returns:
-            dict: Annotation info of specified index.
-        """
-
-        data_info = self.data_infos[idx].copy()
-        img_id = data_info['id']
-        ann_ids = self.coco.get_ann_ids(img_ids=[img_id])
-        ann_info = self.coco.load_anns(ann_ids)
-        if self.coco_caption is not None:
-            caption_ann_ids = self.coco_caption.get_ann_ids(img_ids=[img_id])
-            caption_ann_info = self.coco_caption.load_anns(caption_ann_ids)
-            # During training, randomly choose a caption as gt.
-            random_idx = np.random.randint(0, len(caption_ann_info))
-            caption = caption_ann_info[random_idx]["caption"]
-            data_info["caption"] = caption
-            data_info["caption_nouns"] = " ".join(self._extract_nouns_from_caption(caption))
-        return self._parse_ann_info(data_info, ann_info)
-    
     

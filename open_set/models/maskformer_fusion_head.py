@@ -334,10 +334,8 @@ class MaskFormerFusionHeadOpen(BasePanopticFusionHead):
         """
         max_per_image = self.test_cfg.get('max_per_image', 100)
         num_queries = mask_cls_emb.shape[0]
-        # (num_queries, self.num_classes + 1)
-        mask_cls_emb_score = self.get_cls_emb_scores(mask_cls_emb, gt_cls_embs)
-        # shape (num_queries, num_class)
-        scores = mask_cls_emb_score[:, :-1]
+        mask_cls_emb_score = self.get_cls_emb_scores(mask_cls_emb, gt_cls_embs)  # (num_queries, self.num_classes + 1)
+        scores = mask_cls_emb_score[:, :-1]  # shape (num_queries, num_class)
         # shape (num_queries * num_class, )
         labels = torch.arange(scores.shape[-1], device=mask_cls_emb_score.device).\
             unsqueeze(0).repeat(num_queries, 1).flatten(0, 1)

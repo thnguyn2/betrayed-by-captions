@@ -4,6 +4,8 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+
+    
     
 
 
@@ -137,7 +139,7 @@
                 "--master_port",
                 "29500",
                 "./tools/train.py",
-                "configs/instance/path_ground_with_unknowns.py",
+                "configs/instance/path_ground_baseline.py",
                 "--seed",
                 "0",
                 "--launcher",

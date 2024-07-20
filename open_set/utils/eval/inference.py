@@ -1,6 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import numpy as np
 import torch
+import torch.nn as nn
 
 import transformers
 
@@ -10,11 +11,11 @@ from mmcv.parallel import collate, scatter
 from mmdet.datasets import replace_ImageToTensor
 from mmdet.datasets.pipelines import Compose
 
-def inference_detector(model, imgs, **kwargs):
+def inference_detector(model: nn.Module, imgs, **kwargs):
     """Inference image(s) with the detector.
 
     Args:
-        model (nn.Module): The loaded detector.
+        model: The loaded detector.
         imgs (str/ndarray or list[str/ndarray] or tuple[str/ndarray]):
            Either image files or loaded images.
         with_caption (bool): Whether inference caption generation results.
