@@ -4,11 +4,9 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
-
+        
     
     
-
-
         {
             "address": "TCP/IP address of process to be debugged",
             "localRoot": "${workspaceFolder}",
@@ -41,7 +39,7 @@
             "name": "process-panuke",
             "type": "debugpy",
             "request": "launch",
-            "program": "datasets/preproc/pannuke.py",
+            "program": "datasets/preproc/quilt.py",
             "console": "integratedTerminal"
         },
         {
@@ -122,6 +120,17 @@
             "justMyCode": false,
         },
         {
+            "name": "path-ground-instance-seg-single-gpu-open-unknown",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./tools/train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "configs/instance/path_ground_open_unknown.py",
+            ],
+            "justMyCode": false,
+        },
+        {
             "name": "path-ground-instance-seg-multi-gpu-baseline",
             "type": "debugpy",
             "request": "launch",
@@ -140,6 +149,31 @@
                 "29500",
                 "./tools/train.py",
                 "configs/instance/path_ground_baseline.py",
+                "--seed",
+                "0",
+                "--launcher",
+                "pytorch",
+            ],
+        },
+        {
+            "name": "path-ground-instance-seg-multi-gpu-with-unknowns",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "torch.distributed.launch",
+            "console": "integratedTerminal",
+            "args": [
+                "--nnodes",
+                "1",
+                "--node_rank",
+                "0",
+                "--master_addr",
+                "127.0.0.1",
+                "--nproc_per_node",
+                "8",
+                "--master_port",
+                "29500",
+                "./tools/train.py",
+                "configs/instance/path_ground_with_unknowns.py",
                 "--seed",
                 "0",
                 "--launcher",
@@ -305,6 +339,32 @@
                 "29500",
                 "./tools/train.py",
                 "configs/instance/coco_b48n17.py",
+                "--seed",
+                "0",
+                "--launcher",
+                "pytorch",
+            ],
+            "justMyCode": false,
+        },
+        { // Ok
+            "name": "train-ovis-multi-gpu-with-sparsity",
+            "type": "debugpy",
+            "request": "launch",
+            "module": "torch.distributed.launch",
+            "console": "integratedTerminal",
+            "args": [
+                "--nnodes",
+                "1",
+                "--node_rank",
+                "0",
+                "--master_addr",
+                "127.0.0.1",
+                "--nproc_per_node",
+                "8",
+                "--master_port",
+                "29500",
+                "./tools/train.py",
+                "configs/instance/coco_b48n17_with_sparsity.py",
                 "--seed",
                 "0",
                 "--launcher",

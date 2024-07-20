@@ -4,11 +4,10 @@ from absl import logging
 from collections import defaultdict
 from glob import glob
 import json
-import os
 from pathlib import Path
 import shutil
 from tqdm import tqdm
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 _DATASETS_IMG_FOLDERS_BY_NAME = {
     'PanNuke': Path('/jupyter-users-home/tan-2enguyen/datasets/pathology/pannuke/pannuke_coco/images'),
@@ -28,7 +27,7 @@ ANNOTATION_SPLITS_TO_MERGES = {
 }
 
 logging.set_verbosity(logging.INFO)
-
+        
 def _merge_all() -> None:
     _TARGET_FOLDER = Path('/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged')
     output_folders = _create_output_dataset_folders(target_folder_path = _TARGET_FOLDER)
@@ -111,14 +110,14 @@ def _generate_region_segmentation_annotation_file(
                 combined_image_info['file_name'] = _image_id_to_file_name(image_id=new_image_id)
                 new_image_ids_in_current_set.append(new_image_id)
                 new_all_images_info.append(combined_image_info)
-                
+    
             for anno_info in current_metadata['annotations']:
                 if 'segmentation' in anno_info:
                     region_annotation_dataset = True
                     anno_info['id'] = new_anno_id
                     anno_info['image_id'] = old_id_to_new_id[anno_info['image_id']]
                     new_all_seg_anno_info.append(anno_info)
-                    new_anno_id += 1
+                    new_anno_id += 1    
             
             if region_annotation_dataset:
                 annotated_image_ids = set(x['image_id'] for x in new_all_seg_anno_info)
@@ -127,7 +126,7 @@ def _generate_region_segmentation_annotation_file(
             # TODO: add extra code to handle different image categories.
             if 'categories' in current_metadata:
                 out_metadata['categories'] = current_metadata['categories']
-
+            
     out_metadata['annotations'] = new_all_seg_anno_info
     # Don't save information of images without region annotations.
     out_metadata['images'] = [x for x in new_all_images_info if x['id'] not in image_ids_with_from_region_anno_but_no_anno]
@@ -185,7 +184,6 @@ def _generate_caption_annotation_files(
                 }
                 all_datasets_images_info.append(combined_image_info)
             
-            
             if 'segmentation' in next(iter(private_metadata['annotations'])):
                 synthetic_captions_by_image_id: Dict[int, List[str]] = defaultdict(list)
                 # Generate synthetic captions from region class
@@ -207,7 +205,7 @@ def _generate_caption_annotation_files(
                     new_caption_id += 1
                     
             else:
-                for private_anno_info in private_metadata['annotations']:
+                for private_anno_info in private_metadata['annotations']:                    
                     combined_caption_info = {
                         'id': new_caption_id,
                         'image_id': private_id_to_combined_id[private_anno_info['image_id']],

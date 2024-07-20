@@ -218,6 +218,7 @@ def main():
     meta['exp_name'] = osp.basename(args.config)
 
     datasets = [build_dataset(cfg.data.train)]
+    
     model = build_detector(
         cfg.model,
         train_cfg=cfg.get('train_cfg'),

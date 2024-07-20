@@ -105,7 +105,7 @@ class MaskHungarianAssignerOpen(BaseAssigner):
         else:
             dice_cost = 0
 
-        cost = cls_cost + cls_emb_cost + mask_cost + dice_cost
+        cost = cls_cost + cls_emb_cost + mask_cost + mask_cost
 
         # 3. do Hungarian matching on CPU using linear_sum_assignment
         cost = cost.detach().cpu()

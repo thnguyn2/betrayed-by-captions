@@ -154,6 +154,7 @@ model = dict(
         text_emb_norm=True,
         caption_emb_type=embeding_type,
         caption_gen_emb_type=embeding_type),
+    
     panoptic_fusion_head=dict(
         type='MaskFormerFusionHeadOpen',
         num_things_classes=num_classes,
@@ -181,7 +182,7 @@ model = dict(
         ),
     
     test_cfg=dict(
-        eval_types=['base_results'],
+        eval_types=['all_results'],
         # max_per_image is for instance segmentation.
         max_per_image=100,
         iou_thr=0.5,
@@ -273,7 +274,7 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['base_results'],
+        eval_types=['all_results'],
         use_reduced_size_dataset=False,    
     ),
     
@@ -287,7 +288,7 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['base_results'],
+        eval_types=['all_results'],
         use_reduced_size_dataset=False
         ),
     )

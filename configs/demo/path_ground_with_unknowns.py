@@ -3,17 +3,17 @@ _base_ = [
     '../_base_/default_runtime.py'
 ]
 
-num_things_classes = 5 + 0
+num_things_classes = 5 + 18
 num_stuff_classes = 0
-num_unknown_classes = 0
+num_unknown_classes = 18
 num_classes = num_things_classes + num_stuff_classes
 num_known_classes = num_classes - num_unknown_classes
 
-known_file = f'./datasets/unknown/path_ground_known_{num_classes}.txt'
-unknown_file = None  # Don't use an empty file, it will create a class name of ''
-class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb.json'
+known_file = f'../datasets/unknown/path_ground_known_{num_classes}.txt'
+unknown_file = f'../datasets/unknown/path_ground_unknown_{num_unknown_classes}.txt'
+class_to_emb_file = f'../datasets/embeddings/quilt_class_with_pubmed_bert_emb.json'
 embeding_type = 'pubmed-bert'
-init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining  # Class agnostic pretraining
+init_path = '../pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining  # Class agnostic pretraining
 
 model = dict(
     type='Mask2FormerOpen',  # Name of the model
@@ -181,7 +181,7 @@ model = dict(
         ),
     
     test_cfg=dict(
-        eval_types=['all_results'],
+        eval_types=['base_results'],
         # max_per_image is for instance segmentation.
         max_per_image=100,
         iou_thr=0.5,
@@ -239,7 +239,7 @@ test_pipeline = [
         ])
 ]
 
-dataset_type = 'PathGroundOpen'
+dataset_type = 'PathGroundOpenWithAllClasses'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged/'
 
 minibatch_size = 1
@@ -249,46 +249,46 @@ data = dict(
     workers_per_gpu=minibatch_size,
     train=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations_region_only/train_instances.json',
-        caption_ann_file=data_root + 'annotations_region_only/train_captions.json',
+        ann_file=data_root + 'annotations_mixed/train_instances.json',
+        caption_ann_file=data_root + 'annotations_mixed/train_captions.json',
         img_prefix=data_root + 'images/',
-        transform_pipeline=train_pipeline,
+        pipeline=train_pipeline,
         
         filter_empty_gt=False,
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
         emb_type=embeding_type,
-        use_reduced_size_dataset=False,
+        use_reduced_size_dataset=True,
         ),
     
     val=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations_region_only/val_instances.json',
-        caption_ann_file=data_root + 'annotations_region_only/val_captions.json',
+        ann_file=data_root + 'annotations_mixed/val_instances.json',
+        caption_ann_file=data_root + 'annotations_mixed/val_captions.json',
         
         img_prefix=data_root + 'images/',
-        transform_pipeline=test_pipeline,
+        pipeline=test_pipeline,
         
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['all_results'],
-        use_reduced_size_dataset=False,    
+        eval_types=['base_results'],
+        use_reduced_size_dataset=True,    
     ),
     
     test=dict(
         type=dataset_type,
-        ann_file=data_root + 'annotations_region_only/val_instances.json',
-        caption_ann_file=data_root + 'annotations_region_only/val_captions.json',
+        ann_file=data_root + 'annotations_mixed/val_instances.json',
+        caption_ann_file=data_root + 'annotations_mixed/val_captions.json',
         img_prefix=data_root + 'images/',
-        transform_pipeline=test_pipeline,
+        pipeline=test_pipeline,
         
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['all_results'],
-        use_reduced_size_dataset=False
+        eval_types=['base_results'],
+        use_reduced_size_dataset=True,
         ),
     )
 
@@ -296,7 +296,7 @@ embed_multi = dict(lr_mult=1.0, decay_mult=0.0)
 # optimizer
 optimizer = dict(
     type='AdamW',
-    lr=0.0001,
+    lr=0.00005,
     weight_decay=0.05,
     eps=1e-8,
     betas=(0.9, 0.999),
@@ -327,7 +327,7 @@ runner = dict(
 )
 
 log_config = dict(
-    interval=600,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
+    interval=100,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)
@@ -335,10 +335,10 @@ log_config = dict(
 workflow = [('train', 1)]
 
 checkpoint_config = dict(
-    by_epoch=True, interval=5, save_last=True, max_keep_ckpts=3) 
+    by_epoch=True, interval=1, save_last=True, max_keep_ckpts=2) 
 
 evaluation = dict(
-    interval=5,  # in the unit of epochs.
+    interval=1,  # in the unit of epochs.
     metric=['bbox', 'segm'],
     classwise=True
 )

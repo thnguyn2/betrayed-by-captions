@@ -1,2 +1,3 @@
 from .cross_entropy_loss import CrossEntropyLossOpen
 from .grounding_loss import GroundingLoss
+from .grounding_loss import GroundingLossWithSparistyConstrain

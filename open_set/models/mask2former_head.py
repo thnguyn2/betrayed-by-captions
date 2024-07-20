@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.distributed as dist
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 import transformers
 import clip
@@ -195,29 +195,32 @@ class Mask2FormerHeadOpen(MaskFormerHead):
 
         if self.known_file is not None:
             file_client = mmcv.FileClient()
-            self.known_cat_names = file_client.get_text(self.known_file).split('\n')
+            known_cat_names = set(file_client.get_text(self.known_file).split('\n'))
+        else:
+            known_cat_names = set()
+            
         if self.unknown_file is not None:
             file_client = mmcv.FileClient()
-            self.unknown_cat_names = file_client.get_text(self.unknown_file).split('\n')
+            self._unknown_cat_names = set(file_client.get_text(self.unknown_file).split('\n'))
+        else:
+            self._unknown_cat_names = set()
         if self.use_class_emb:
-            class_to_emb_file = kwargs['class_to_emb_file']
-            class_to_emb = mmcv.load(class_to_emb_file)
-            class_embedding_dim = len(class_to_emb[0]['emb'])
-            class_embs = torch.zeros((self.num_classes + 1, class_embedding_dim), dtype=torch.float)
-            i = 0
-            # Copy the class embeddings from BERT to the head.
-            for class_dict in class_to_emb:
-                if self.known_file:
-                    if class_dict['name'] not in self.known_cat_names:
-                        continue
-                if self.unknown_file:
-                    if class_dict['name'] in self.unknown_cat_names:
-                        continue
-                class_embs[i, :] = torch.FloatTensor(class_dict['emb'])
-                i += 1
+            class_to_emb = {class_dict['name']: torch.FloatTensor(class_dict['emb']) for class_dict in mmcv.load(kwargs['class_to_emb_file'])}
+            emb_dim = len(list(class_to_emb.values())[0])
+            
+            class_embs = torch.zeros((self.num_classes + 1, emb_dim), dtype=torch.float)
+            known_class_idx = 0
+            for name, emb in class_to_emb.items():
+                if name not in known_cat_names:   # Only store embeddings of the non-classes
+                    continue 
+                if name in self._unknown_cat_names:
+                    continue
+                class_embs[known_class_idx, :] = emb
+                known_class_idx += 1
+                
             # automatically to cuda
             self.register_buffer('class_embs', class_embs)
-            self.v2l_transform = nn.Linear(self.feat_channels, class_embedding_dim)
+            self.v2l_transform = nn.Linear(self.feat_channels, emb_dim)
         self.bert_embeddings = self.clip = None
         if self._use_caption:
             self.caption_emb_type = kwargs.get('caption_emb_type', 'clip')
@@ -229,6 +232,10 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         if self.learnable_temperature:
             self.softmax_temperature = nn.Parameter(torch.tensor([self.softmax_temperature]), requires_grad=True)
 
+    @property
+    def unknown_cat_names(self) -> Set[str]:
+        return self._unknown_cat_names
+    
     def init_weights(self):
         for m in self.decoder_input_projs:
             if isinstance(m, Conv2d):
@@ -787,6 +794,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                 Note `cls_out_channels` should includes background.
             mask_cls_emb_results: embedding predictions, shape (batch_size, num_queries, d_l).
             mask_pred_results (Tensor): Mask logits, shape (batch_size, num_queries, h, w).
+            caption_generation_results: The results of the caption generation.
         """
         all_layer_cls_scores, all_cls_emb_preds, all_layer_mask_preds = self(feats, img_metas)
         mask_cls_results = all_layer_cls_scores[-1]
@@ -808,7 +816,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
 
         caption_generation_results = None
         if kwargs.get('with_caption', False) or ('cap_results' in self.test_cfg.get('eval_types', [])):
-            caption_generation_results = beam_search(self, mask_cls_emb_results, BOS_TOKEN, EOS_TOKEN, max_len=35, beam_width=7, logging=kwargs.get('logging'
+            caption_generation_results = beam_search(self, mask_cls_emb_results, BOS_TOKEN, EOS_TOKEN, emb_type=self.caption_emb_type, max_len=35, beam_width=7, logging=kwargs.get('logging'
     , False))
         
         att = None

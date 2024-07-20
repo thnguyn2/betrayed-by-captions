@@ -239,7 +239,7 @@ test_pipeline = [
         ])
 ]
 
-dataset_type = 'PathGroundOpen'
+dataset_type = 'PathGroundOpenWithAllClasses'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged/'
 
 minibatch_size = 1
@@ -259,7 +259,7 @@ data = dict(
         unknown_file=unknown_file,
         class_agnostic=False,
         emb_type=embeding_type,
-        use_reduced_size_dataset=False,
+        use_reduced_size_dataset=True,
         ),
     
     val=dict(
@@ -274,7 +274,7 @@ data = dict(
         unknown_file=unknown_file,
         class_agnostic=False,
         eval_types=['base_results'],
-        use_reduced_size_dataset=False,    
+        use_reduced_size_dataset=True,    
     ),
     
     test=dict(
@@ -287,8 +287,8 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['base_results'],
-        use_reduced_size_dataset=False
+        eval_types=['base_results'],  # We don't have the segmentation masks for novel classes!
+        use_reduced_size_dataset=True,
         ),
     )
 
@@ -327,7 +327,7 @@ runner = dict(
 )
 
 log_config = dict(
-    interval=200,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
+    interval=100,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)
@@ -335,7 +335,7 @@ log_config = dict(
 workflow = [('train', 1)]
 
 checkpoint_config = dict(
-    by_epoch=True, interval=2, save_last=True, max_keep_ckpts=2) 
+    by_epoch=True, interval=1, save_last=True, max_keep_ckpts=2) 
 
 evaluation = dict(
     interval=1,  # in the unit of epochs.

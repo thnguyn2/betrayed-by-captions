@@ -11,8 +11,7 @@ num_known_classes = num_classes - num_unknown_classes
 known_file = f'./datasets/unknown/known_{num_classes}.txt'
 unknown_file = f'./datasets/unknown/unknown_{num_unknown_classes}.txt'
 class_to_emb_file = f'./datasets/embeddings/coco_class_with_bert_emb.json'
-#init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining
-init_path = './checkpoints/coco_instance_ag3x_1x.pth'  # From the last checkpoint
+init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining
 
 model = dict(
     type='Mask2FormerOpen',
@@ -258,7 +257,7 @@ data = dict(
         unknown_file=unknown_file,
         class_agnostic=False,
         eval_types=['all_results', 'novel_results', 'base_results'],
-        use_reduced_size_dataset=True,
+        use_reduced_size_dataset=False,
     ),
     test=dict(
         type=dataset_type,
@@ -269,7 +268,7 @@ data = dict(
         unknown_file=unknown_file,
         class_agnostic=False,
         eval_types=['all_results', 'novel_results', 'base_results'],
-        use_reduced_size_dataset=True,
+        use_reduced_size_dataset=False,
     ))
 
 embed_multi = dict(lr_mult=1.0, decay_mult=0.0)
@@ -301,11 +300,11 @@ lr_config = dict(
     warmup_ratio=1.0,  # no warmup
     warmup_iters=10)
 
-max_epochs = 12
+max_epochs = 20
 runner = dict(type='EpochBasedRunner', max_epochs=max_epochs)
 
 log_config = dict(
-    interval=100,
+    interval=1,
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)
@@ -315,6 +314,6 @@ checkpoint_config = dict(
     by_epoch=True, interval=1, save_last=True, max_keep_ckpts=2)
 
 evaluation = dict(
-    interval=max_epochs,
+    interval=1,
     metric=['bbox', 'segm'],
     classwise=True)

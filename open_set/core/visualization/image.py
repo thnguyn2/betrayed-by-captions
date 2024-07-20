@@ -159,7 +159,6 @@ def draw_labels(ax,
             fontsize=font_size_mask,
             verticalalignment='top',
             horizontalalignment=horizontal_alignment)
-
     return ax
 
 

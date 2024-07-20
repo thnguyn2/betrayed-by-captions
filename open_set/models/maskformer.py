@@ -4,7 +4,7 @@ import copy
 import mmcv
 import numpy as np
 import torch
-from typing import Dict, List, Union
+from typing import Dict, List, Union, Tuple
 
 from mmdet.core import INSTANCE_OFFSET, bbox2result
 from ..core.visualization import imshow_det_bboxes
@@ -120,7 +120,7 @@ class MaskFormerOpen(SingleStageDetector):
 
         return losses
 
-    def simple_test(self, imgs: torch.Tensor, img_metas, **kwargs):
+    def simple_test(self, imgs: torch.Tensor, img_metas, **kwargs) -> List[Dict[str, Tuple[List[np.ndarray], List[List[np.ndarray]]]]]:
         """Test without augmentation, often used for inference
 
         Args:
@@ -130,36 +130,10 @@ class MaskFormerOpen(SingleStageDetector):
                 other annotations
 
         Returns:
-            list[dict[str, np.array | tuple[list]] | tuple[list]]:
-                Semantic segmentation results and panoptic segmentation \
-                results of each image for panoptic segmentation, or formatted \
-                bbox and mask results of each image for instance segmentation.
-
-            .. code-block:: none
-
-                [
-                    # panoptic segmentation
-                    {
-                        'pan_results': np.array, # shape = [h, w]
-                        'ins_results': tuple[list],
-                        # semantic segmentation results are not supported yet
-                        'sem_results': np.array
-                    },
-                    ...
-                ]
-
-            or
-
-            .. code-block:: none
-
-                [
-                    # instance segmentation
-                    (
-                        bboxes, # list[np.array]
-                        masks # list[list[np.array]]
-                    ),
-                    ...
-                ]
+            Semantic segmentation results and panoptic segmentation \
+            results of each image for panoptic segmentation, or formatted \
+            bbox and mask results of each image for instance segmentation.
+            Each item in the list is a dictionary. 1 dictionary for 1 type of result.
         """
         feats = self.extract_feat(imgs)
         assigned_labels, mask_cls_emb_results, mask_pred_results, caption_generation_results, att = \
@@ -188,14 +162,20 @@ class MaskFormerOpen(SingleStageDetector):
                     results[i][type] = results[i][type].detach(
                     ).cpu().numpy()
                 else:
-                    labels_per_image, bboxes, mask_pred_binary = results[i][res_type]
-                    bbox_results = bbox2result(bboxes, labels_per_image,
-                                                pred_classes)
-                    mask_results = [[] for _ in range(pred_classes)]
-                    for j, label in enumerate(labels_per_image):
-                        mask = mask_pred_binary[j].detach().cpu().numpy()
-                        mask_results[label].append(mask)
-                    results[i][res_type] = bbox_results, mask_results
+                    if res_type in results[i]:
+                        labels_per_image, bboxes, mask_pred_binary = results[i][res_type]
+                        bbox_results: List[np.ndarray] = bbox2result(bboxes, labels_per_image,
+                                                    pred_classes)
+                        mask_results = [[] for _ in range(pred_classes)]
+                        for j, label in enumerate(labels_per_image):
+                            mask = mask_pred_binary[j].detach().cpu().numpy()
+                            mask_results[label].append(mask)
+                        results[i][res_type] = bbox_results, mask_results
+                    elif 'grounding' in results[i]:
+                        _, bbox_results, mask_pred_binary = results[i]['grounding']
+                        bbox_results = [bbox_results.detach().cpu().numpy()]
+                        mask_results = [[mask.detach().cpu().numpy() for mask in mask_pred_binary]]
+                        results[i]['grounding'] = bbox_results, mask_results   
 
             if kwargs.get('with_mask', False):
                 results[i]['mask'] = mask_pred_results.cpu().numpy()
@@ -259,6 +239,8 @@ class MaskFormerOpen(SingleStageDetector):
         img = img.copy()
         if 'all_results' in result:
             all_result = result['all_results']
+        elif 'grounding' in result:
+            all_result = result['grounding']
         else:
             all_result = result['base_results']
         bbox_result, segm_result = all_result
@@ -279,13 +261,14 @@ class MaskFormerOpen(SingleStageDetector):
         # if out_file specified, do not show image in window
         if out_file is not None:
             show = False
+        
         # draw bounding boxes
         img = imshow_det_bboxes(
             img,
             bboxes,
             labels,
             segms,
-            class_names=self.CLASSES,
+            class_names=self.CLASSES if 'grounding' not in result else ('',),
             score_thr=score_thr,
             bbox_color=bbox_color,
             text_color=text_color,
@@ -354,6 +337,7 @@ class MaskFormerOpen(SingleStageDetector):
         # if out_file specified, do not show image in window
         if out_file is not None:
             show = False
+        
         # draw bounding boxes
         img = imshow_det_bboxes(
             img,

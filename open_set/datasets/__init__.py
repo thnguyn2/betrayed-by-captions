@@ -3,4 +3,4 @@ from .coco_open import CocoDatasetOpen
 from .ade20k import ADE20KDataset
 from . import pipelines
 from .dataset_wrappers import ClassBalancedDatasetOpen
-from .path_grounding import PathGroundOpen
+from .path_grounding import PathGroundOpen, PathGroundOpenWithAllClasses
