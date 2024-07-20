@@ -12,7 +12,7 @@ import transformers
 import clip
 import torch
 import time
-
+from typing import Dict
 import mmcv
 import numpy as np
 from mmcv.utils import print_log
@@ -191,11 +191,11 @@ class CocoDatasetOpen(CustomDataset):
     
         return data_infos
 
-    def get_ann_info(self, idx):
+    def get_ann_info(self, idx: int) -> Dict:
         """Get COCO annotation by index.
 
         Args:
-            idx (int): Index of data.
+            idx: Index of data.
 
         Returns:
             dict: Annotation info of specified index.

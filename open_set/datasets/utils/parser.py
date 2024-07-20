@@ -126,7 +126,7 @@ class LVISParser():
             A list of matched concept nouns.
             A list of matched category ids.
         """
-        sentence = sentence.lower()
+        sentence = str(sentence).lower()
 
         tokens = self.nlp(sentence)
         lemma_sentence = []
