@@ -11,7 +11,7 @@ num_known_classes = num_classes - num_unknown_classes
 
 known_file = f'./datasets/unknown/path_ground_known_{num_classes}.txt'
 unknown_file = None  # Don't use an empty file, it will create a class name of ''
-class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb.json'
+class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb_ordered.json'
 embeding_type = 'pubmed-bert'
 init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining  # Class agnostic pretraining
 

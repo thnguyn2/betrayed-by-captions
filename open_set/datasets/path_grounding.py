@@ -30,9 +30,12 @@ class PathGroundOpen(CocoDatasetOpen):
         class_agnostic (optional): If True, train a class agnositic model. Defaults to False.
         emb_type (optional): The type of embeddings. Defaults to `bert`.
         use_reduced_size_dataset (optional): If True, use a smaller dataset for fast debugging. Defaults to False.
+        class_to_emb_file (optional): The path to a file containing the embeddings of the classes.
     Reference:
         https://www.youtube.com/watch?v=jftZBfMZj8k
     """
+    
+    # This is the class indices in the dataset.
     CLASSES =  ('neoplastic', 'inflammatory', 'connective', 'dead', 'epithelial')
     def __init__(
         self,
@@ -56,6 +59,7 @@ class PathGroundOpen(CocoDatasetOpen):
         nouns_parser: str='med_lvis',
         emb_type='bert',
         use_reduced_size_dataset: bool=False,
+        class_to_emb_file: Optional[str]=None,
     ) -> None:
         super().__init__(
             ann_file=ann_file,
@@ -78,6 +82,7 @@ class PathGroundOpen(CocoDatasetOpen):
             max_ann_per_image=max_ann_per_image,
             nouns_parser=nouns_parser,
             use_reduced_size_dataset=use_reduced_size_dataset,
+            class_to_emb_file=class_to_emb_file,
         )
     
 @DATASETS.register_module()

@@ -247,7 +247,9 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        emb_type='bert'),
+        emb_type='bert',
+        class_to_emb_file=class_to_emb_file,
+        ),
     val=dict(
         type=dataset_type,
         ann_file=data_root + 'annotations/instances_val2017.json',
@@ -258,6 +260,7 @@ data = dict(
         class_agnostic=False,
         eval_types=['all_results', 'novel_results', 'base_results'],
         use_reduced_size_dataset=False,
+        class_to_emb_file=class_to_emb_file,
     ),
     test=dict(
         type=dataset_type,
@@ -269,6 +272,7 @@ data = dict(
         class_agnostic=False,
         eval_types=['all_results', 'novel_results', 'base_results'],
         use_reduced_size_dataset=False,
+        class_to_emb_file=class_to_emb_file,
     ))
 
 embed_multi = dict(lr_mult=1.0, decay_mult=0.0)
@@ -304,7 +308,7 @@ max_epochs = 20
 runner = dict(type='EpochBasedRunner', max_epochs=max_epochs)
 
 log_config = dict(
-    interval=1,
+    interval=500,
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)

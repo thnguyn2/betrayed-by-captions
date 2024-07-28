@@ -11,7 +11,7 @@ num_known_classes = num_classes - num_unknown_classes
 
 known_file = f'./datasets/unknown/path_ground_known_{num_classes}.txt'
 unknown_file = None  # Don't use an empty file, it will create a class name of ''
-class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb.json'
+class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb_ordered.json'
 embeding_type = 'pubmed-bert'
 init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining  # Class agnostic pretraining
 
@@ -260,6 +260,7 @@ data = dict(
         class_agnostic=False,
         emb_type=embeding_type,
         use_reduced_size_dataset=False,
+        class_to_emb_file=class_to_emb_file,
         ),
     
     val=dict(
@@ -275,6 +276,7 @@ data = dict(
         class_agnostic=False,
         eval_types=['all_results'],
         use_reduced_size_dataset=False,    
+        class_to_emb_file=class_to_emb_file,
     ),
     
     test=dict(
@@ -288,7 +290,8 @@ data = dict(
         unknown_file=unknown_file,
         class_agnostic=False,
         eval_types=['all_results'],
-        use_reduced_size_dataset=False
+        use_reduced_size_dataset=False,
+        class_to_emb_file=class_to_emb_file,
         ),
     )
 
@@ -327,7 +330,7 @@ runner = dict(
 )
 
 log_config = dict(
-    interval=600,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
+    interval=200,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)

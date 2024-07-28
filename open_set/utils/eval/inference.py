@@ -2,7 +2,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
-from typing import Optional
+from typing import List, Optional, Tuple, Union
 import transformers
 
 from mmcv.ops import RoIPool
@@ -75,6 +75,26 @@ def inference_detector(model: nn.Module, imgs, **kwargs):
 
     return results
 
+def save_similarity_matrix(model: nn.Module, img: np.ndarray) -> np.ndarray:
+    """Generates the similarity matrix for between queries from the image and the text.
+    
+    Args:
+        model: The trained model.
+        img: The input iamge to compute the queries and plot the similarity matrix.
+    """
+    print("Generating similarity matrix.")
+    cfg = model.cfg
+    device = next(model.parameters()).device  # model device
+
+    if isinstance(img, np.ndarray):
+        cfg = cfg.copy()
+        # set loading pipeline type
+        cfg.data.test.pipeline[0].type = 'LoadImageFromWebcam'
+
+    cfg.data.test.pipeline = replace_ImageToTensor(cfg.data.test.pipeline)
+    test_pipeline = Compose(cfg.data.test.pipeline)
+    print("Done")
+    
 def get_ids_embedding(model, ids):
     emb = model.bert_embeddings.word_embeddings(ids)
     emb = model.bert_embeddings.LayerNorm(emb).squeeze(0)

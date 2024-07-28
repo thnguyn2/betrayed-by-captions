@@ -2,8 +2,10 @@
 import contextlib
 import io
 import itertools
+import json
 import logging
 import os.path as osp
+from pathlib import Path
 import tempfile
 from unicodedata import category
 import warnings
@@ -92,6 +94,7 @@ class CocoDatasetOpen(CustomDataset):
                 max_ann_per_image=100,
                 nouns_parser='lvis',
                 use_reduced_size_dataset: bool=False,
+                class_to_emb_file=None,
                 ):
         self.test_mode = test_mode
         self.known_file = known_file
@@ -135,7 +138,40 @@ class CocoDatasetOpen(CustomDataset):
             self.parser = LVISParser(add_adj=True)
         elif nouns_parser == 'imagenet':
             self.parser = ImageNet21KParser()
+            
+        if class_to_emb_file:
+            self._check_order_consistency_between_classes_and_class_embeddings(class_to_emb_file=Path(class_to_emb_file))
 
+    def _check_order_consistency_between_classes_and_class_embeddings(self, class_to_emb_file: str):
+        ordered_classes = []
+        class_to_emb = mmcv.load(class_to_emb_file)
+        for class_dict in class_to_emb:
+            if class_dict['name'] in self.CLASSES:
+                ordered_classes.append(class_dict['name'])
+        if ordered_classes != list(self.CLASSES):
+            ordered_class_emb_file_name = self._reorder_class_embedding_file(class_to_emb=class_to_emb, class_to_emb_file=class_to_emb_file)
+            raise ValueError(f"The order of the classes in the embedding files does not match the class order in the dataset. Consider switching to the ordered embedding file at {ordered_class_emb_file_name}!")
+    
+    def _reorder_class_embedding_file(self, class_to_emb: List[Dict], class_to_emb_file: Path) -> str:
+        ordered_classes = []
+        class_dict_by_idx_order: Dict[int, Dict] = {}
+        for class_dict in class_to_emb:
+            if class_dict['name'] not in self.CLASSES:
+                ordered_classes.append(class_dict)
+            else:
+                class_dict_by_idx_order[self.CLASSES.index(class_dict['name'])] = class_dict
+                
+        for idx in range(len(class_dict_by_idx_order)):
+            ordered_classes.append(class_dict_by_idx_order[idx])
+        
+        class_embs = json.dumps(ordered_classes)
+        
+        target_file_name = class_to_emb_file.parent / (class_to_emb_file.name.split(".")[0] + '_ordered.json')
+        with open(str(target_file_name), "w") as file:
+            file.write(class_embs)
+        return target_file_name
+        
+        
     def load_annotations(self, ann_file: str) -> List[Dict]:
         """Load annotation from COCO style annotation file.
 
