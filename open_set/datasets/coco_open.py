@@ -32,7 +32,7 @@ from mmdet.datasets.custom import CustomDataset
 from .utils.parser import LVISParser, NLTKParser, ImageNet21KParser, MedLVISParser
 from open_set.models.utils.bert_embeddings import BERT_MODEL_BY_EMBEDDING_TYPES
 
-_LIMITED_DATASET_SIZE = 120
+_LIMITED_DATASET_SIZE = 1
 @DATASETS.register_module()
 class CocoDatasetOpen(CustomDataset):
 
