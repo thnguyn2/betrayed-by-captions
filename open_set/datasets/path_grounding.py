@@ -37,6 +37,9 @@ class PathGroundOpen(CocoDatasetOpen):
     
     # This is the class indices in the dataset.
     CLASSES =  ('neoplastic', 'inflammatory', 'connective', 'dead', 'epithelial')
+    
+    PALETTE = [(0, 255, 0), (255, 165, 0), (255, 0, 0),  (0, 0, 0),  (255, 255, 0)]
+    
     def __init__(
         self,
         ann_file: str,

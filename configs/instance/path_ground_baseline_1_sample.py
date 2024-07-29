@@ -13,7 +13,7 @@ known_file = f'./datasets/unknown/path_ground_known_{num_classes}.txt'
 unknown_file = None  # Don't use an empty file, it will create a class name of ''
 class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb_ordered.json'
 embeding_type = 'pubmed-bert'
-init_path = './work_dirs/path_ground_baseline_1_sample/epoch_65.pth'  # From class agnostic pretraining  # Class agnostic pretraining
+init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining  # Class agnostic pretraining
 
 model = dict(
     type='Mask2FormerOpen',  # Name of the model
@@ -330,7 +330,7 @@ runner = dict(
 )
 
 log_config = dict(
-    interval=1,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
+    interval=20,  # in the unit of iters, #iters = #images total / (mini batch size) * epoches
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)
