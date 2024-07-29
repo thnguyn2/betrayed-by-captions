@@ -5,6 +5,8 @@
     "version": "0.2.0",
     "configurations": [
         
+
+
         {
             "address": "TCP/IP address of process to be debugged",
             "localRoot": "${workspaceFolder}",
@@ -103,6 +105,17 @@
             "console": "integratedTerminal",
             "args": [
                 "configs/instance/path_ground_baseline_1_sample.py",
+            ],
+            "justMyCode": false,
+        },
+        {
+            "name": "path-ground-instance-seg-single-gpu-pretrained",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "./tools/train.py",
+            "console": "integratedTerminal",
+            "args": [
+                "configs/instance/path_ground_baseline_pretrained.py",
             ],
             "justMyCode": false,
         },
