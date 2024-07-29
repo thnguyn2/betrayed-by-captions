@@ -10,7 +10,7 @@ num_classes = num_things_classes + num_stuff_classes
 num_known_classes = num_classes - num_unknown_classes
 
 known_file = f'./datasets/unknown/path_ground_known_{num_classes}.txt'
-unknown_file = None  # Don't use an empty file, it will create a class name of ''
+unknown_file = None  # Don't use an empty file, use None if you don't have an unknown file. It will create a class name of ''
 class_to_emb_file = f'./datasets/embeddings/quilt_class_with_pubmed_bert_emb_ordered.json'
 embeding_type = 'pubmed-bert'
 
@@ -112,13 +112,13 @@ model = dict(
         loss_cls=dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
-            loss_weight=2.0,
+            loss_weight=0.0,
             reduction='mean',
             class_weight=[1.0] * num_known_classes + [0.1]),
         loss_cls_emb=dict(
             type='CrossEntropyLoss',
             use_sigmoid=False,
-            loss_weight=0.0,
+            loss_weight=1.0,
             reduction='mean',
             class_weight=[1.0] * num_known_classes + [0.1]),
         loss_mask=dict(
@@ -136,7 +136,7 @@ model = dict(
             loss_weight=5.0),
         class_agnostic=True,
         use_caption=False,
-        use_class_emb=False,
+        use_class_emb=True,
         use_caption_generation=False,
         class_to_emb_file=class_to_emb_file,
         known_file=known_file,
@@ -173,14 +173,14 @@ model = dict(
         ),
     
     test_cfg=dict(
-        eval_types=['all_results'],
+        eval_types=['ins_results'],
         # max_per_image is for instance segmentation.
         max_per_image=100,
         iou_thr=0.8,
         # In Mask2Former's panoptic postprocessing,
         # it will filter mask area where score is less than 0.5 .
         filter_low_score=True,
-        use_class_emb=False),
+        use_class_emb=True),
 )
 
 # dataset settings
@@ -249,7 +249,7 @@ test_pipeline = [
 dataset_type = 'PathGroundOpen'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/pathology/anno_caption_merged/'
 
-minibatch_size = 1
+minibatch_size = 2
 data = dict(
     _delete_=True,
     samples_per_gpu=minibatch_size,
@@ -281,7 +281,7 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['all_results'],
+        eval_types=['ins_results'],
         use_reduced_size_dataset=False,    
         class_to_emb_file=class_to_emb_file,
     ),
@@ -296,7 +296,7 @@ data = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         class_agnostic=False,
-        eval_types=['all_results'],
+        eval_types=['ins_results'],
         use_reduced_size_dataset=False,
         class_to_emb_file=class_to_emb_file,
         ),
@@ -333,7 +333,7 @@ lr_config = dict(
 
 runner = dict(
     type='EpochBasedRunner', 
-    max_epochs=1000,
+    max_epochs=140,
 )
 
 log_config = dict(
