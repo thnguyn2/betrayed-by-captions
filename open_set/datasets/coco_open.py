@@ -145,6 +145,7 @@ class CocoDatasetOpen(CustomDataset):
     def _check_order_consistency_between_classes_and_class_embeddings(self, class_to_emb_file: str):
         ordered_classes = []
         class_to_emb = mmcv.load(class_to_emb_file)
+        
         for class_dict in class_to_emb:
             if class_dict['name'] in self.CLASSES:
                 ordered_classes.append(class_dict['name'])

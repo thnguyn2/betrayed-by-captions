@@ -27,7 +27,13 @@ _OUTPUT_CLASS_EMBEDDING_FILE = "datasets/embeddings/quilt_class_with_pubmed_bert
 _EMBEDDING_DIM = 768
 
 
-def _generate_class_embeddings_from_concepts(concept_file_path: Path) -> None:
+def _generate_class_embeddings_from_concepts(concept_file_path: Path, normalized_pooled_token_embeddings: bool=True) -> None:
+    """Generates the class embeddings for different concepts.
+    
+    Args:
+        concept_file_path: The path to the medical concept file.
+        normalized_pooled_token_embeddings (optional): If True, the pooled token embedding will be normalized.
+    """
     with open(str(concept_file_path), "r") as file:
         concepts = json.load(file)
 
@@ -38,7 +44,7 @@ def _generate_class_embeddings_from_concepts(concept_file_path: Path) -> None:
     )        
     tokenizer = AutoTokenizer.from_pretrained(BERT_MODEL_BY_EMBEDDING_TYPES[embedding_type])
     all_class_embeddings: torch.Tensor = torch.zeros((len(concepts), _EMBEDDING_DIM), dtype=torch.float32)
-    layernorm = nn.LayerNorm(normalized_shape=_EMBEDDING_DIM, eps=1e-9)
+    layernorm = nn.LayerNorm(normalized_shape=_EMBEDDING_DIM, eps=1e-9) if normalized_pooled_token_embeddings else None
     with torch.no_grad():
         for idx, concept in tqdm(enumerate(concepts)):
             token_ids = tokenizer(concept, return_tensors="pt", truncation=False, add_special_tokens=False, padding=False)
@@ -47,7 +53,7 @@ def _generate_class_embeddings_from_concepts(concept_file_path: Path) -> None:
                 outputs = embs,
                 mask=token_ids['attention_mask'],
             )
-            all_class_embeddings[idx] = layernorm(embs)
+            all_class_embeddings[idx] = layernorm(embs) if layernorm is not None else embs
 
     json_obj = json.dumps([{"id": idx + 1, "name": concept, "emb": [x.item() for x in class_embd]} for idx, (concept, class_embd) in enumerate(zip(concepts, all_class_embeddings))] )
     with open(_OUTPUT_CLASS_EMBEDDING_FILE, "w") as out_file:
@@ -67,4 +73,4 @@ def _pooling_over_token_embeddings(outputs: torch.Tensor, mask: torch.Tensor) ->
     return torch.sum(outputs * mask, dim=1) / torch.clamp(mask.sum(1), min=1e-9)
     
 if __name__ == "__main__":
-    _generate_class_embeddings_from_concepts(concept_file_path=Path("open_set/datasets/utils/quilt_categories.json"))
+    _generate_class_embeddings_from_concepts(concept_file_path=Path("open_set/datasets/utils/quilt_categories.json"), normalized_pooled_token_embeddings=False)
