@@ -263,7 +263,6 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         if emb_type in ('pubmed-bert', 'bert') and self.bert_embeddings is None:
             self.bert_embeddings = BertEmbeddings(
                 bert_model=transformers.AutoModel.from_pretrained(BERT_MODEL_BY_EMBEDDING_TYPES[emb_type]).eval(),
-                normalize_word_embeddings=normalize_word_embeddings,
             )
             for param in self.bert_embeddings.parameters():
                 param.requires_grad = False
