@@ -383,9 +383,11 @@ class CocoDatasetOpen(CustomDataset):
 
         return ann
 
-    def parse_caption(self, img_info) -> Tuple[List[int], List[int], List[int], List[int]]:
+    def parse_caption(self, img_info: Dict) -> Tuple[List[int], List[int], List[int], List[int]]:
         """Tokenize the caption and the sentence of nouns.
         
+        Args:
+            img_info: Information of the image and caption annotaion.
         Returns:
             An array of token ids for the caption.
             An attention mask for tokens for the caption.

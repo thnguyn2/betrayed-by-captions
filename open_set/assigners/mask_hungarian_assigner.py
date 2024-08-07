@@ -67,6 +67,7 @@ class MaskHungarianAssignerOpen(BaseAssigner):
         Returns:
             The assigned result.
         """
+
         assert gt_bboxes_ignore is None, 'Only case when gt_bboxes_ignore is None is supported.'
         # K-Net sometimes passes cls_pred=None to this assigner.
         # So we should use the shape of mask_pred
