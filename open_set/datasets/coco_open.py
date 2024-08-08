@@ -251,7 +251,8 @@ class CocoDatasetOpen(CustomDataset):
             random_idx = np.random.randint(0, len(caption_ann_info))
             caption = caption_ann_info[random_idx]["caption"]
             data_info["caption"] = caption
-            data_info["caption_nouns"] = " ".join(self._extract_nouns_from_caption(caption))
+            # Need to convert to a sentence so that the tokenization is equivalent to that of single nouns. Don't use list of nouns here!
+            data_info["caption_noun_sentence"] = " ".join(self._extract_nouns_from_caption(caption))
         
         try:
             out_info = self._parse_ann_info(data_info, ann_info)
@@ -259,7 +260,7 @@ class CocoDatasetOpen(CustomDataset):
             print(f"Can't get annotation info with idx = {idx}, datainfo = {data_info}, ann_info = {ann_info}")
         return out_info
     
-    def _extract_nouns_from_caption(self, caption: str) -> Set[str]:
+    def _extract_nouns_from_caption(self, caption: str) -> List[str]:
         """Returns a set of nouns in the caption."""
         unique_nns = []
         nns, _ = self.parser.parse(caption)
@@ -366,9 +367,9 @@ class CocoDatasetOpen(CustomDataset):
         seg_map = img_info['filename'].replace('jpg', 'png')
 
         if self.coco_caption is not None:
-            padded_ids, attention_mask, padded_nouns_ids, attention_nouns_mask = self.parse_caption(img_info)
+            padded_ids, attention_mask, padded_nouns_ids, attention_nouns_mask, padded_token_noun_indices = self.parse_caption(img_info)
         else:
-            padded_ids, attention_mask, padded_nouns_ids, attention_nouns_mask = None, None, None, None
+            padded_ids, attention_mask, padded_nouns_ids, attention_nouns_mask, padded_token_noun_indices = None, None, None, None, None
 
         ann = dict(
             bboxes=gt_bboxes,
@@ -379,43 +380,62 @@ class CocoDatasetOpen(CustomDataset):
             caption_ids=padded_ids,
             caption_mask=attention_mask,
             caption_nouns_ids=padded_nouns_ids,
-            caption_nouns_mask=attention_nouns_mask)
+            caption_nouns_mask=attention_nouns_mask,
+            token_noun_indices=padded_token_noun_indices,
+        )
 
         return ann
 
-    def parse_caption(self, img_info: Dict) -> Tuple[List[int], List[int], List[int], List[int]]:
+    def parse_caption(self, img_info: Dict, enable_debug: bool=False) -> Tuple[List[int], List[int], List[int], List[int], List[int]]:
         """Tokenize the caption and the sentence of nouns.
         
         Args:
             img_info: Information of the image and caption annotaion.
+            enable_debug: If True, print debug information.
+            
         Returns:
             An array of token ids for the caption.
             An attention mask for tokens for the caption.
             An array of token ids for the sentence of nouns.
             An attention mask for tokens of the sentence of nouns.
+            An array of noun indices for different tokens in the sentence.
         """
         caption_str = img_info['caption']
-        caption_nouns = img_info['caption_nouns']
+        caption_noun_sentence = img_info['caption_noun_sentence']
         padded_ids = [0] * self.max_tokens
         attention_mask = [0] * self.max_tokens
         padded_nouns_ids = [0] * self.max_tokens
         attention_nouns_mask = [0] * self.max_tokens
+        padded_token_noun_indices = [-1] * self.max_tokens
+        
         if self.emb_type in ('bert', 'pubmed-bert'):
             caption_ids = self.tokenizer.encode(caption_str, add_special_tokens=True)
             caption_ids = caption_ids[:self.max_tokens]
             padded_ids[:len(caption_ids)] = caption_ids
             attention_mask[:len(caption_ids)] = [1] * len(caption_ids)
-            if caption_nouns is None:
-                caption_nouns = ""
+            if caption_noun_sentence is None:
+                caption_noun_sentence = ""
                 
-            caption_nouns_ids = self.tokenizer.encode(caption_nouns, add_special_tokens=False)
+            
+            #caption_nouns_ids = self.tokenizer.encode(caption_noun_sentence, add_special_tokens=False)
+            caption_nouns_ids, token_noun_indices = self._tokenize_sentence(caption_noun_sentence)
+            
+            if enable_debug:
+                if len(set(caption_noun_sentence.split(" ")).intersection({"giraffe", "handbag", "surfboard", "skis", "broccoli", "donut", "toothbrush", "frisbee", "toaster", "skateboard", "snowboard"})) > 0:
+                    print(f"caption_nouns = {caption_noun_sentence}")
+                    print(f"caption_nouns_ids = {caption_nouns_ids}")
+                    print(f"token_noun_indices = {token_noun_indices}")
+                
             caption_nouns_ids = caption_nouns_ids[:self.max_tokens]
+            token_noun_indices = token_noun_indices[:self.max_tokens]
+            
             padded_nouns_ids[:len(caption_nouns_ids)] = caption_nouns_ids
             attention_nouns_mask[:len(caption_nouns_ids)] = [1] * len(caption_nouns_ids)
+            padded_token_noun_indices[:len(caption_nouns_ids)] = token_noun_indices
         elif self.emb_type == 'clip':
             padded_ids = clip.tokenize(caption_str).numpy()
             attention_mask = padded_ids > 0
-            padded_nouns_ids = torch.cat([clip.tokenize(f'A photo of a {noun}') for noun in caption_nouns.split(' ')], dim=0).numpy()
+            padded_nouns_ids = torch.cat([clip.tokenize(f'A photo of a {noun}') for noun in caption_noun_sentence.split(' ')], dim=0).numpy()
             attention_nouns_mask = [0] * padded_nouns_ids.shape[1]
             attention_nouns_mask[:padded_nouns_ids.shape[0]] = [1] * padded_nouns_ids.shape[0]
         elif self.emb_type == 'bert-clip':
@@ -423,12 +443,27 @@ class CocoDatasetOpen(CustomDataset):
             caption_ids = caption_ids[:self.max_tokens]
             padded_ids[:len(caption_ids)] = caption_ids
             attention_mask[:len(caption_ids)] = [1] * len(caption_ids)
-            padded_nouns_ids = torch.cat([clip.tokenize(f'A photo of a {noun}') for noun in caption_nouns.split(' ')], dim=0).numpy()
+            padded_nouns_ids = torch.cat([clip.tokenize(f'A photo of a {noun}') for noun in caption_noun_sentence.split(' ')], dim=0).numpy()
             attention_nouns_mask = [0] * padded_nouns_ids.shape[1]
             attention_nouns_mask[:padded_nouns_ids.shape[0]] = [1] * padded_nouns_ids.shape[0]
 
-        return padded_ids, attention_mask, padded_nouns_ids, attention_nouns_mask
+        return padded_ids, attention_mask, padded_nouns_ids, attention_nouns_mask, padded_token_noun_indices
 
+    def _tokenize_sentence(self, caption_noun_sentence: str) -> Tuple[List[int], List[int]]:
+        """
+        Returns:
+            - A list of token ids for different nouns in the sentence.
+            - A list of noun indices for different tokens in the sentence.
+        """
+        nouns = caption_noun_sentence.split(" ")
+        all_token_ids = []
+        token_noun_indices = []
+        for noun_idx, noun in enumerate(nouns):
+            token_ids = self.tokenizer.encode(noun, add_special_tokens=False)
+            all_token_ids.extend(token_ids)
+            token_noun_indices.extend([noun_idx] * len(token_ids))
+        return all_token_ids, token_noun_indices
+        
     def xyxy2xywh(self, bbox):
         """Convert ``xyxy`` style bounding boxes to ``xywh`` style for COCO
         evaluation.

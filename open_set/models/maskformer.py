@@ -84,6 +84,7 @@ class MaskFormerOpen(SingleStageDetector):
                       gt_caption_mask: List[torch.Tensor] =None,
                       gt_caption_nouns_ids: List[torch.Tensor]=None,
                       gt_caption_nouns_mask: List[torch.Tensor]=None,
+                      gt_token_noun_indices: List[torch.Tensor]=None,
                       gt_semantic_seg=None,
                       gt_bboxes_ignore=None,
                       **kwargs) -> Dict[str, torch.Tensor]:
@@ -101,6 +102,7 @@ class MaskFormerOpen(SingleStageDetector):
             gt_caption_mask: A list of masks for the caption words.
             gt_caption_nouns_ids: A list of token ids for the nouns in the caption.
             gt_caption_nouns_mask: A list of maks for the nouns in the caption.
+            gt_token_noun_indices: A list of noun indices for different tokens in caption.
             kwargs:
                 gt_cat_names (list[list[str]]): List of List of category names
                 of the corresponding label in gt_labels
@@ -115,8 +117,10 @@ class MaskFormerOpen(SingleStageDetector):
         super(SingleStageDetector, self).forward_train(img, img_metas)
         
         x = self.extract_feat(img)
-        losses = self.panoptic_head.forward_train(x, img_metas, gt_bboxes, gt_labels, gt_masks, gt_semantic_seg, gt_caption_ids,
-                                                  gt_caption_mask, gt_caption_nouns_ids, gt_caption_nouns_mask, gt_bboxes_ignore, **kwargs)
+        losses = self.panoptic_head.forward_train(
+            x, img_metas, gt_bboxes, gt_labels, gt_masks, gt_semantic_seg, gt_caption_ids,
+            gt_caption_mask, gt_caption_nouns_ids, gt_caption_nouns_mask, gt_bboxes_ignore, 
+            gt_token_noun_indices, **kwargs)
 
         return losses
 

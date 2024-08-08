@@ -119,6 +119,10 @@ class OpenFormatBundle:
             results['gt_caption_nouns_mask'] = DC(
                 to_tensor(results['gt_caption_nouns_mask']),
             )
+        if 'gt_token_noun_indices' in results:
+            results['gt_token_noun_indices'] = DC(
+                to_tensor(results['gt_token_noun_indices']),
+            )
         return results
 
     def _add_default_meta_keys(self, results):

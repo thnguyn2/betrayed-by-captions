@@ -213,7 +213,7 @@ train_pipeline = [
     dict(type='Normalize', **img_norm_cfg),
     dict(type='OpenFormatBundle', img_to_float=True),
     dict(type='Collect', keys=['img', 'gt_bboxes', 'gt_labels', 'gt_masks',
-        'gt_caption_ids', 'gt_caption_mask', 'gt_caption_nouns_ids', 'gt_caption_nouns_mask']),
+        'gt_caption_ids', 'gt_caption_mask', 'gt_caption_nouns_ids', 'gt_caption_nouns_mask', 'gt_token_noun_indices']),
 ]
 test_pipeline = [
     dict(type='LoadImageFromFile'),

@@ -207,6 +207,7 @@ class LoadOpenAnnotations:
         results['gt_caption_mask'] = results['ann_info']['caption_mask'].copy()
         results['gt_caption_nouns_ids'] = results['ann_info']['caption_nouns_ids'].copy()
         results['gt_caption_nouns_mask'] = results['ann_info']['caption_nouns_mask'].copy()
+        results['gt_token_noun_indices'] = results['ann_info']['token_noun_indices'].copy()
         return results
 
     def __call__(self, results):

@@ -383,9 +383,9 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         gt_caption_embs_list: List[torch.Tensor], 
         gt_caption_mask_list: List[torch.Tensor],
         gt_caption_nouns_ids_list: List[torch.Tensor], 
-        gt_caption_nouns_embs_list: List[torch.Tensor], 
-        gt_caption_nouns_mask_list: List[torch.Tensor], 
-        img_metas
+        gt_caption_avg_pooled_nouns_embs_list: List[torch.Tensor], 
+        gt_caption_avg_pooled_nouns_mask_list: List[torch.Tensor], 
+        img_metas,
         ) -> Dict[str, float]:
         """Loss function.
 
@@ -403,6 +403,9 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             gt_caption_ids_list: A list of caption id arrays for different samples in the minibatch. Each array has length of (max_token,).
             gt_caption_embs_list: A list of caption embedding arrays for different samples in the minibatch. Each array has shape (max_token, d_l) 
             gt_caption_mask_list: A list of caption id mask arrays for different samples in the minibatch. Each array has a length of (max_token,).
+            gt_caption_nouns_ids_list: 
+            gt_caption_avg_pooled_nouns_embs_list:
+            gt_caption_avg_pooled_nouns_mask_list: 
             img_metas (list[dict]): List of image meta information.
 
         Returns:
@@ -418,8 +421,8 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             [gt_caption_embs_list for _ in range(num_dec_layers)], 
             [gt_caption_mask_list for _ in range(num_dec_layers)],
             [gt_caption_nouns_ids_list for _ in range(num_dec_layers)], 
-            [gt_caption_nouns_embs_list for _ in range(num_dec_layers)], 
-            [gt_caption_nouns_mask_list for _ in range(num_dec_layers)], 
+            [gt_caption_avg_pooled_nouns_embs_list for _ in range(num_dec_layers)], 
+            [gt_caption_avg_pooled_nouns_mask_list for _ in range(num_dec_layers)], 
             [img_metas for _ in range(num_dec_layers)]
         )
 
@@ -457,8 +460,8 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         gt_caption_embs_list: List[torch.Tensor], 
         gt_caption_mask_list: List[torch.Tensor],
         gt_caption_nouns_ids_list: List[torch.Tensor], 
-        gt_caption_nouns_embs_list: List[torch.Tensor], 
-        gt_caption_nouns_mask_list: List[torch.Tensor], 
+        gt_caption_avg_pooled_nouns_embs_list: List[torch.Tensor], 
+        gt_caption_avg_pooled_nouns_mask_list: List[torch.Tensor], 
         img_metas: List[Dict],
         ) -> Tuple[torch.Tensor]:
         """Loss function for outputs from a single decoder layer.
@@ -472,8 +475,8 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             gt_labels_list: Ground truth class indices for each image, each with shape (num_gts, ).
             gt_masks_list: Ground truth mask for each image, each with shape (num_gts, h, w).
             gt_caption_ids_list: (max_token,)
-            gt_caption_embs_list: (max_token, d_l)
-            gt_caption_mask_list: (max_token,)
+            gt_caption_avg_pooled_nouns_embs_list: (max_token, d_l)
+            gt_caption_avg_pooled_nouns_mask_list: (max_token,)
             img_metas: List of image meta information.
 
         Returns:
@@ -504,7 +507,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         loss_grounding = loss_cls.new_tensor(0.0)
         if self._use_caption:
             all_gt_caption_nouns_embs, all_gt_caption_nouns_mask, all_cls_emb_preds = \
-                self._gather_captions_and_preds(gt_caption_nouns_embs_list, gt_caption_nouns_mask_list, cls_emb_preds)
+                self._gather_captions_and_preds(gt_caption_avg_pooled_nouns_embs_list, gt_caption_avg_pooled_nouns_mask_list, cls_emb_preds)
             loss_grounding = self._loss_grounding(all_cls_emb_preds, all_gt_caption_nouns_embs, all_gt_caption_nouns_mask, self.softmax_temperature)
 
         # Caption generation loss
@@ -631,6 +634,37 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                 valid_mask_list.append(mask_list[i])
 
         return embs_list, valid_mask_list
+    
+    def _extract_noun_word_embeddings(self,  ids_list: List[torch.Tensor], mask_list: List[torch.Tensor], token_noun_indices: List[torch.Tensor], emb_type: str='bert') -> torch.Tensor:
+        """Calculates the work embeddings of tokens ids.
+        
+        Args:
+            ids_list: A list of token ids for all captions in the minibatch. Each item of the list is for 1 sample of shapes (N_tokens,).
+            mask_list: A list of token masks for all captions in the minibatch. One item of the list is for 1 sample of shapes (N_tokens,).
+            token_noun_indices: A tensor of shape (Ntokens,) that specifies the noun indices of the token.
+            emb_type: The type of embeddings, defaults to `bert`.
+            
+        Returns:
+            A tensor of shape (N_reduced_token, emb) that contains the (avg pooled) embeddings of differnt nouns.
+            A tensor of shape (N_reduced_token,) that contains the (avg pooled) embedding masks of differnt nouns.
+            
+        Note that a noun can be converted to many tokens. Similar to a sentence.
+        For example, the word `girrafe` can be tokenize into [21025, 11335, 7959].
+        The embeddings saved in the file embeddings/coco_class_with_bert_emb.json are 
+        average pooled across tokens of a noun. 
+        Hence, we need to make sure that we need to properly account for this in the grounding loss.    
+        """
+        embs_list = []
+        valid_mask_list = []
+        if emb_type in ('bert', 'pubmed-bert'):
+            for i, (ids, noun_index) in enumerate(zip(ids_list, token_noun_indices)):
+                embs, mask = self.bert_embeddings.calculate_mean_pool_embeddings(ids=ids, noun_idx=noun_index.clone())
+                embs_list.append(embs)
+                valid_mask_list.append(mask)
+        else:
+            raise NotImplementedError(f"Unkown embedding type {emb_type}")
+        
+        return embs_list, valid_mask_list
 
     def forward_head(self, decoder_out: torch.Tensor, mask_feature: torch.Tensor, attn_mask_target_size: Tuple[int, int]) -> \
         Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -739,7 +773,9 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                     gt_caption_mask: List[torch.Tensor],
                     gt_caption_nouns_ids: List[torch.Tensor],
                     gt_caption_nouns_mask: List[torch.Tensor],
-                    gt_bboxes_ignore: Optional[torch.Tensor] =None,
+                    gt_bboxes_ignore: Optional[torch.Tensor]=None,
+                    gt_token_noun_indices: Optional[torch.Tensor]=None,
+                    enable_debug: bool = False,
                     **kwargs) -> Dict[str, torch.Tensor]:
         """Forward function for training mode.
 
@@ -757,6 +793,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             gt_caption_nouns_ids: The id of the noun tokens.
             gt_caption_nouns_mask : The mask of the noun tokens.
             gt_bboxes_ignore: Ground truth bboxes to be ignored. Defaults to None.
+            gt_token_noun_indices: A list of noun indices for different tokens in caption. Defaults to None.
             kwargs:
                 gt_cat_names (list[list[str]]): List of List of category names
                 of the corresponding label in gt_labels
@@ -776,11 +813,28 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             gt_caption_embs, gt_caption_mask = self._extract_word_embeddings(gt_caption_ids, gt_caption_mask, self.caption_gen_emb_type)
         
         if self._use_caption:
-            gt_caption_nouns_embs, gt_caption_nouns_mask = self._extract_word_embeddings(gt_caption_nouns_ids, gt_caption_nouns_mask, self.caption_emb_type)
+            gt_caption_avg_pooled_nouns_embs, gt_caption_avg_pool_nouns_mask = self._extract_noun_word_embeddings(
+                ids_list=gt_caption_nouns_ids, 
+                mask_list=gt_caption_nouns_mask, 
+                token_noun_indices=gt_token_noun_indices, 
+                emb_type=self.caption_emb_type
+            )
         
+        if enable_debug:
+            print_debug = False
+            for gt_token_noun_index in gt_token_noun_indices:
+                for idx in range(gt_token_noun_index.max() + 1):
+                    if (gt_token_noun_index == idx).sum() > 1:
+                        print_debug = True
+                        break
+            if print_debug:
+                print(gt_caption_avg_pooled_nouns_embs)
+        
+
         return self.loss(all_layers_cls_scores, all_layers_cls_emb_preds, all_layers_mask_preds,
-                           gt_labels, gt_masks, gt_caption_ids, gt_caption_embs, gt_caption_mask,
-                           gt_caption_nouns_ids, gt_caption_nouns_embs, gt_caption_nouns_mask, img_metas)
+                        gt_labels, gt_masks, gt_caption_ids, gt_caption_embs, gt_caption_mask,
+                        gt_caption_nouns_ids, gt_caption_avg_pooled_nouns_embs, gt_caption_avg_pool_nouns_mask, 
+                        img_metas)
 
     def simple_test(self, feats: List[torch.Tensor], img_metas: List[Dict], **kwargs) -> Tuple[torch.Tensor]:
         """Tests without augmentaton.
