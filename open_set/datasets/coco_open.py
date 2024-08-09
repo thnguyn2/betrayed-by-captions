@@ -422,7 +422,7 @@ class CocoDatasetOpen(CustomDataset):
             
             if enable_debug:
                 if len(set(caption_noun_sentence.split(" ")).intersection({"giraffe", "handbag", "surfboard", "skis", "broccoli", "donut", "toothbrush", "frisbee", "toaster", "skateboard", "snowboard"})) > 0:
-                    print(f"caption_nouns = {caption_noun_sentence}")
+                    print(f"caption_nouns = {caption_noun_sentence}, caption = {caption_str}")
                     print(f"caption_nouns_ids = {caption_nouns_ids}")
                     print(f"token_noun_indices = {token_noun_indices}")
                 

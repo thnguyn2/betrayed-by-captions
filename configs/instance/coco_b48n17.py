@@ -128,12 +128,14 @@ model = dict(
         loss_caption_generation=dict(
             type='CrossEntropyLoss',
             ignore_index=0,
-            loss_weight=2.0),
+            loss_weight=2.0
+            ),
         loss_mask=dict(
             type='CrossEntropyLoss',
             use_sigmoid=True,
             reduction='mean',
-            loss_weight=5.0),
+            loss_weight=5.0
+            ),
         loss_dice=dict(
             type='DiceLoss',
             use_sigmoid=True,
@@ -141,7 +143,8 @@ model = dict(
             reduction='mean',
             naive_dice=True,
             eps=1.0,
-            loss_weight=5.0),
+            loss_weight=5.0
+            ),
         class_agnostic=False,
         use_caption=True,
         use_class_emb=True,
