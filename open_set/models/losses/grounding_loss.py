@@ -65,9 +65,10 @@ class GroundingLoss(nn.Module):
             The value of the grounding loss
         """
         batch_size, num_queries, d_l = cls_emb_pred.shape
-        # Don't calculate grounding loss if there are captions without nouns.
-        if (gt_caption_noun_mask.sum(dim=1) > 0).sum() < batch_size:
-            return 0.0
+        # Don't calculate grounding loss if there is at least 1 caption without nouns.
+        # TODO: handle the corner case better!
+        if torch.prod(gt_caption_noun_mask.sum(dim=1), dim=0) == 0:
+            return torch.tensor(0.0, device=gt_caption_noun_embs.device)
         else:
             _, num_max_tokens = gt_caption_noun_mask.shape
             num_tokens = gt_caption_noun_mask.sum(dim=1)  # batchsize
@@ -88,14 +89,12 @@ class GroundingLoss(nn.Module):
             
             # This sum is in equation (1)
             local_distance = -local_similarity / temperature
-            global_dist_l2v = (attention_l2v * local_distance).sum(dim=2).sum(dim=1) / torch.max(num_tokens, other=torch.ones_like(num_tokens))  # [B, B]
-            global_dist_l2v = torch.where(num_tokens > 0, global_dist_l2v, global_dist_l2v.max().detach() + 100.0)
+            global_dist_l2v = (attention_l2v * local_distance).sum(dim=2).sum(dim=1) / num_tokens  # [B, B]
             pw_cost_l2v = global_dist_l2v.reshape(batch_size, batch_size)  #[[(bl1, bv1), (bl1, bv2), ... (bl1, bvB))], [(bl2, bv1), (bl2, bv2)....]]
             
             attention_v2l = F.softmax(local_similarity, dim=1)
             
             global_dist_v2l = ((attention_v2l * local_distance).sum(dim=2).sum(dim=1) / num_queries)
-            global_dist_v2l = torch.where(num_tokens > 0, global_dist_v2l, global_dist_v2l.max().detach() + 100.0)
             pw_cost_v2l = global_dist_v2l.reshape(batch_size, batch_size)
         
             return (
