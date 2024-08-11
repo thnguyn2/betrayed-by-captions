@@ -294,6 +294,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             cls_emb_logits_list: Embedding prediction logits for a single decoder layer for all images with shape (num_queries, cls_out_channels).
             mask_preds_list: Mask logits from a single decoder layer for all images. Each with shape (num_queries, h, w).
             gt_labels_list: Ground truth class indices for all images. Each with shape (n, ), n is the sum of number of stuff type and number of instance in a image.
+                The index in this list ranges from [0, 1, ..., #known class - 1] that stores the label index from the original data. There is no background class here!
             gt_masks_list: Ground truth mask for each image, each with shape (n, h, w).
             img_metas: List of image meta information.
 
@@ -304,7 +305,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             mask_weights_list: Mask weights of all images, shape (batch_size, num_querie ).
             num_total_pos: Number of positive samples in all images, shape.
             num_total_neg: Number of negative samples in all images, shape.
-        """
+        """ 
         (labels_list, label_weights_list, mask_targets_list, mask_weights_list, pos_inds_list, neg_inds_list) = multi_apply(
             self._get_target_single_image, cls_scores_list, cls_emb_logits_list, mask_preds_list, gt_labels_list, gt_masks_list, img_metas)
         return (

@@ -33,6 +33,9 @@ class MaskHungarianAssignerOpen(BaseAssigner):
         dice_cost (:obj:`mmcv.ConfigDict` | dict): Dice cost config.
     """
 
+    _BACKGROUND_OBJECT_INDEX = 0
+    _BACKGROUND_OBJECT_LABEL = -1
+    
     def __init__(self,
                  cls_cost=dict(type='ClassificationCost', weight=1.0),
                  mask_cost=dict(
@@ -60,12 +63,20 @@ class MaskHungarianAssignerOpen(BaseAssigner):
             cls_emb_pred: Predicted class embedding logits in shape (num_query, cls_out_channels) for a single layer of a single image.
             mask_pred: The (sampled) predicted mask logit in shape of (num_query, num_points) for a single layer of a single image.
             gt_labels: Groundtruth label of 'gt_mask'in shape = (num_gt, ) one for each object in the image.
+                Here num_gt is the number of objects in the groundtruth image.
+                The labels of the mask is in the range of [0, 1, ... #known_class - 1]
             gt_mask: The (sampled) groundtruth mask in the shape of (num_queries, num_points).
             img_meta: Meta information for current image.
             eps: A value added to the denominator for numerical stability. Default 1e-7.
 
         Returns:
-            The assigned result.
+            The assigned result that contains the followings
+                num_gt: The number of groundtruths.
+                assigned_gt_inds: A tensor of shape (N_query,) that stores the index of the object that has a match with a query.
+                    An index 0 is used for the background object and 1, ... num_gt is used for the for ground objects.
+                assigned_labels: A tensor of shape (N_query,) that stores the labels of the matched object.
+                    A label of -1 is used for the label of the background object and 0, 1, ... #known class - 1 
+                    are used the label of foreground objects.
         """
 
         assert gt_bboxes_ignore is None, 'Only case when gt_bboxes_ignore is None is supported.'
@@ -73,14 +84,12 @@ class MaskHungarianAssignerOpen(BaseAssigner):
         # So we should use the shape of mask_pred
         num_gt, num_query = gt_labels.shape[0], mask_pred.shape[0]
 
-        # 1. assign -1 by default
-        assigned_gt_inds = mask_pred.new_full((num_query, ),-1, dtype=torch.long)
-        assigned_labels = mask_pred.new_full((num_query, ), -1, dtype=torch.long)
+        
+        # 1. Initialize defaults to background object
+        assigned_gt_inds = mask_pred.new_full((num_query, ), self._BACKGROUND_OBJECT_INDEX, dtype=torch.long)
+        assigned_labels = mask_pred.new_full((num_query, ), self._BACKGROUND_OBJECT_LABEL, dtype=torch.long)
         if num_gt == 0 or num_query == 0:
             # No ground truth or boxes, return empty assignment
-            if num_gt == 0:
-                # No ground truth, assign all to background
-                assigned_gt_inds[:] = 0
             return AssignResult(
                 num_gt, assigned_gt_inds, None, labels=assigned_labels)
 
@@ -92,7 +101,8 @@ class MaskHungarianAssignerOpen(BaseAssigner):
             cls_cost = 0
         
         if self.cls_emb_cost.weight != 0 and cls_emb_pred is not None:
-            cls_emb_cost = self.cls_emb_cost(cls_emb_pred, gt_labels)
+            # gt_labels has the range of [0, 1, ..., # known class - 1], no background clas.
+            cls_emb_cost = self.cls_emb_cost(cls_emb_pred, gt_labels)  # [N_query, num_gt]
         else:
             cls_emb_cost = 0
 
@@ -106,7 +116,7 @@ class MaskHungarianAssignerOpen(BaseAssigner):
         else:
             dice_cost = 0
 
-        cost = cls_cost + cls_emb_cost + mask_cost + mask_cost
+        cost = cls_cost + cls_emb_cost + mask_cost + dice_cost
 
         # 3. do Hungarian matching on CPU using linear_sum_assignment
         cost = cost.detach().cpu()
@@ -114,15 +124,12 @@ class MaskHungarianAssignerOpen(BaseAssigner):
             raise ImportError('Please run "pip install scipy" '
                               'to install scipy first.')
 
-        matched_row_inds, matched_col_inds = linear_sum_assignment(cost)
-        matched_row_inds = torch.from_numpy(matched_row_inds).to(mask_pred.device)
-        matched_col_inds = torch.from_numpy(matched_col_inds).to(mask_pred.device)
+        matched_query_inds, matched_mask_inds = linear_sum_assignment(cost)
+        matched_query_inds = torch.from_numpy(matched_query_inds).to(mask_pred.device)
+        matched_mask_inds = torch.from_numpy(matched_mask_inds).to(mask_pred.device)
 
-        # 4. assign backgrounds and foregrounds
-        # assign all indices to backgrounds first
-        assigned_gt_inds[:] = 0
-        # assign foregrounds based on matching results
-        assigned_gt_inds[matched_row_inds] = matched_col_inds + 1
-        assigned_labels[matched_row_inds] = gt_labels[matched_col_inds]
+        # 4. assign foregrounds based on matching results
+        assigned_gt_inds[matched_query_inds] = matched_mask_inds + 1
+        assigned_labels[matched_query_inds] = gt_labels[matched_mask_inds]
         return AssignResult(
             num_gt, assigned_gt_inds, None, labels=assigned_labels)
