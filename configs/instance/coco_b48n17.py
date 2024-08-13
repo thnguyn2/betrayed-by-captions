@@ -12,8 +12,7 @@ known_file = f'./datasets/unknown/known_{num_classes}.txt'
 unknown_file = f'./datasets/unknown/unknown_{num_unknown_classes}.txt'
 class_to_emb_file = f'./datasets/embeddings/coco_class_with_bert_emb.json'
 init_path = './pretrained/class_ag_pretrained_3x.pth'  # From class agnostic pretraining
-#init_path = './checkpoints/coco_instance_ag3x_1x.pth'  # From class agnostic pretraining
-
+#init_path = './checkpoints/coco_instance_ag3x_1x.pth'  # Trained checkpoint for OVIS
 
 model = dict(
     type='Mask2FormerOpen',
@@ -240,8 +239,8 @@ dataset_type = 'CocoDatasetOpen'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/detectron2/coco/'
 data = dict(
     _delete_=True,
-    samples_per_gpu=4,
-    workers_per_gpu=4,
+    samples_per_gpu=2,
+    workers_per_gpu=2,
     train=dict(
         type=dataset_type,
         ann_file=data_root + 'annotations/instances_train2017.json',

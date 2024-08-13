@@ -9,6 +9,7 @@ from mmdet.models.builder import LOSSES
 @LOSSES.register_module()
 class GroundingLoss(nn.Module):
 
+    _MIN_NUM_IMAGES_FOR_GROUNDING_LOSS = 2
     def __init__(self,
                  reduction: str='mean',
                  loss_weight: float=1.0,
@@ -66,12 +67,11 @@ class GroundingLoss(nn.Module):
         """
         batch_size, num_queries, d_l = cls_emb_pred.shape
         # Don't calculate grounding loss if there is at least 1 caption without nouns.
-        # TODO: handle the corner case better!
         num_caption_nouns_per_image = gt_caption_noun_mask.sum(dim=1)
         usable_minibatch_mask = num_caption_nouns_per_image > 0
         num_usable_images = usable_minibatch_mask.sum()
         
-        if num_usable_images == 1:
+        if num_usable_images < self._MIN_NUM_IMAGES_FOR_GROUNDING_LOSS:
             return torch.tensor(0.0, device=gt_caption_noun_embs.device)
         elif num_usable_images < batch_size:
             gt_caption_noun_embs = gt_caption_noun_embs[usable_minibatch_mask]

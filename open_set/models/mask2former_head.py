@@ -231,6 +231,8 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             self._build_text_encoders(self.caption_gen_emb_type, normalize_word_embeddings=self.text_emb_norm)
         if self.learnable_temperature:
             self.softmax_temperature = nn.Parameter(torch.tensor([self.softmax_temperature]), requires_grad=True)
+            
+        self.assigner.softmax_temperature = self.softmax_temperature
 
     @property
     def unknown_cat_names(self) -> Set[str]:
@@ -285,13 +287,14 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         for p in self.transformer_decoder.parameters():
             p.requires_grad = False
 
-    def _get_targets_all_images_single_layer(self, cls_scores_list: List[torch.Tensor], cls_emb_logits_list: List[torch.Tensor], mask_preds_list: List[torch.Tensor],
+    def _get_targets_all_images_single_layer(self, cls_scores_list: List[torch.Tensor], cls_emb_preds_list: List[torch.Tensor], mask_preds_list: List[torch.Tensor],
                 gt_labels_list: List[torch.Tensor], gt_masks_list: List[torch.Tensor], img_metas: List[Dict]) -> Tuple[Union[torch.Tensor, int]]:
         """Computes classification and mask targets for all images for a decoder layer.
 
         Args:
             cls_scores_list: Mask score logits from a single decoder layer for all images. Each with shape (num_queries, cls_out_channels).
-            cls_emb_logits_list: Embedding prediction logits for a single decoder layer for all images with shape (num_queries, cls_out_channels).
+            cls_emb_preds_list: A  list of class embedding predictions for a single decoder layer for all images with shape (batch_size, num_queries, d_l).
+                d_l is the dimension of embeddings.
             mask_preds_list: Mask logits from a single decoder layer for all images. Each with shape (num_queries, h, w).
             gt_labels_list: Ground truth class indices for all images. Each with shape (n, ), n is the sum of number of stuff type and number of instance in a image.
                 The index in this list ranges from [0, 1, ..., #known class - 1] that stores the label index from the original data. There is no background class here!
@@ -307,7 +310,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             num_total_neg: Number of negative samples in all images, shape.
         """ 
         (labels_list, label_weights_list, mask_targets_list, mask_weights_list, pos_inds_list, neg_inds_list) = multi_apply(
-            self._get_target_single_image, cls_scores_list, cls_emb_logits_list, mask_preds_list, gt_labels_list, gt_masks_list, img_metas)
+            self._get_target_single_image, cls_scores_list, cls_emb_preds_list, mask_preds_list, gt_labels_list, gt_masks_list, img_metas)
         return (
             torch.stack(labels_list, dim=0), 
             torch.stack(label_weights_list, dim=0), 
@@ -317,13 +320,13 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             sum((inds.numel() for inds in neg_inds_list)),
         )
 
-    def _get_target_single_image(self, cls_score: torch.Tensor, cls_emb_logit: torch.Tensor, mask_pred: torch.Tensor,
+    def _get_target_single_image(self, cls_score: torch.Tensor, cls_emb_pred: torch.Tensor, mask_pred: torch.Tensor,
                         gt_labels: torch.Tensor, gt_masks: torch.Tensor, img_metas: Dict) -> Tuple[torch.Tensor]:
         """Compute classification and mask targets for one image.
 
         Args:
             cls_score: Mask score logits from a single decoder layer for one image. Shape (num_queries, cls_out_channels).
-            cls_emb_logit: Embedding prediction logit for a single decoder layer for one image with shape (num_queries, cls_out_channels).
+            cls_emb_pred: Embedding prediction logit for a single decoder layer for one image with shape (num_queries, cls_out_channels).
             mask_pred: Mask logits for a single decoder layer for one image. Shape (num_queries, h, w).
             gt_labels: Ground truth class indices for one image with shape (num_gts, ).
             gt_masks: Ground truth mask for each image, each with shape (num_gts, h, w).  
@@ -337,6 +340,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             pos_inds: Sampled positive indices for each image.
             neg_inds: Sampled negative indices for each image.
         """
+        
         # sample points
         num_queries = cls_score.shape[0]
         point_coords = torch.rand((1, self.num_points, 2), device=cls_score.device)
@@ -345,11 +349,12 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         sampling_result = self.sampler.sample(
             self.assigner.assign(
                 cls_score, 
-                cls_emb_logit, 
-                point_sample(mask_pred.unsqueeze(1), point_coords.repeat(num_queries, 1, 1)).squeeze(1),  # shape (num_queries, num_points)
-                gt_labels,
-                point_sample(gt_masks.unsqueeze(1).float(), point_coords.repeat(gt_labels.shape[0], 1, 1)).squeeze(1),  # shape (num_gts, num_points)
-                img_metas,
+                cls_emb_pred=cls_emb_pred,
+                target_cls_emb=self.class_embs,
+                mask_pred=point_sample(mask_pred.unsqueeze(1), point_coords.repeat(num_queries, 1, 1)).squeeze(1),  # shape (num_queries, num_points)
+                gt_labels=gt_labels,
+                gt_mask=point_sample(gt_masks.unsqueeze(1).float(), point_coords.repeat(gt_labels.shape[0], 1, 1)).squeeze(1),  # shape (num_gts, num_points)
+                img_meta=img_metas,
             ), 
             mask_pred, 
             gt_masks
@@ -404,7 +409,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             gt_caption_ids_list: A list of caption id arrays for different samples in the minibatch. Each array has length of (max_token,).
             gt_caption_embs_list: A list of caption embedding arrays for different samples in the minibatch. Each array has shape (max_token, d_l) 
             gt_caption_mask_list: A list of caption id mask arrays for different samples in the minibatch. Each array has a length of (max_token,).
-            gt_caption_nouns_ids_list: 
+            gt_caption_nouns_ids_list: A list of caption now ids.
             gt_caption_avg_pooled_nouns_embs_list:
             gt_caption_avg_pooled_nouns_mask_list: 
             img_metas (list[dict]): List of image meta information.
@@ -483,15 +488,20 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         Returns:
             Loss components for outputs from a single decoder layer.
         """
-        cls_emb_logits = self._get_cls_emb_logits_from_cls_emb_pred(cls_emb_preds) if self.use_class_emb else None
+        # Debug only
+        # all_noun_token_ids = torch.cat(gt_caption_nouns_ids_list)
+        # if 10777 in all_noun_token_ids:
+        #     print("Here!")
+        
+        
         (labels, label_weights, mask_targets, mask_weights, num_total_pos, _) = self._get_targets_all_images_single_layer(
             [x for x in cls_scores], 
-            [x for x in cls_emb_logits] if self.use_class_emb else [None] * cls_scores.size(0), 
+            [x for x in cls_emb_preds] if self.use_class_emb else [None] * cls_scores.size(0),
             [x for x in mask_preds],
             gt_labels_list, 
             gt_masks_list,
             img_metas)
-
+        
         # Classfication loss
         cls_scores = cls_scores.flatten(0, 1)
         labels = labels.flatten(0, 1)  # (batch_size * num_queries, )
@@ -502,7 +512,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         # Embedding prediction loss
         loss_cls_emb = loss_cls.new_tensor(0.0)
         if self.use_class_emb:
-            loss_cls_emb = self._loss_cls_emb(cls_emb_logits.flatten(0, 1), labels, label_weights.float(), avg_factor=class_weight[labels].sum())
+            loss_cls_emb = self._loss_cls_emb(self._get_cls_emb_logits_from_cls_emb_pred(cls_emb_preds).flatten(0, 1), labels, label_weights.float(), avg_factor=class_weight[labels].sum())
 
         # Caption grounding loss
         loss_grounding = loss_cls.new_tensor(0.0)

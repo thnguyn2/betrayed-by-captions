@@ -1,2 +1,2 @@
-from .mask_hungarian_assigner import MaskHungarianAssignerOpen
+from .mask_hungarian_assigner import MaskHungarianAssignerOpen, FlexibleMaskHungarianAssignerOpen
 from .multimodal_hungarian_assigner import MultiModelHungarianAssignerOpen
