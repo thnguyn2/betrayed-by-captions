@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import shutil
 from tqdm import tqdm
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Set
 
 _DATASETS_IMG_FOLDERS_BY_NAME = {
     'PanNuke': Path('/jupyter-users-home/tan-2enguyen/datasets/pathology/pannuke/pannuke_coco/images'),
@@ -185,12 +185,12 @@ def _generate_caption_annotation_files(
                 all_datasets_images_info.append(combined_image_info)
             
             if 'segmentation' in next(iter(private_metadata['annotations'])):
-                synthetic_captions_by_image_id: Dict[int, List[str]] = defaultdict(list)
+                synthetic_captions_by_image_id: Dict[int, List[str]] = defaultdict(set)
                 # Generate synthetic captions from region class
                 for private_anno_info in private_metadata['annotations']:
                     private_image_id = private_anno_info['image_id']
                     current_category = private_metadata['categories'][private_anno_info['category_id']]
-                    synthetic_captions_by_image_id[private_image_id].append(f"{current_category['name'].lower()} {current_category['supercategory'].lower()}")
+                    synthetic_captions_by_image_id[private_image_id] |= {f"{current_category['name'].lower()} {current_category['supercategory'].lower()}s"}
                 
                 synthetic_captions_by_image_id = {k: v for k, v in synthetic_captions_by_image_id.items() if len(v) > 0}
                 
@@ -198,7 +198,7 @@ def _generate_caption_annotation_files(
                     combined_caption_info = {
                         'id': new_caption_id,
                         'image_id': private_id_to_combined_id[private_image_id],
-                        'caption': ", ".join(f"{cap}" for cap in  captions)
+                        'caption': "A photo of " + ", ".join(f"{cap}" for cap in  captions)
                     }
                         
                     all_datasets_captions_info.append(combined_caption_info)
