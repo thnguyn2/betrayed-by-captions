@@ -287,8 +287,16 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         for p in self.transformer_decoder.parameters():
             p.requires_grad = False
 
-    def _get_targets_all_images_single_layer(self, cls_scores_list: List[torch.Tensor], cls_emb_preds_list: List[torch.Tensor], mask_preds_list: List[torch.Tensor],
-                gt_labels_list: List[torch.Tensor], gt_masks_list: List[torch.Tensor], img_metas: List[Dict]) -> Tuple[Union[torch.Tensor, int]]:
+    def _get_targets_all_images_single_layer(
+        self, 
+        cls_scores_list: List[torch.Tensor], 
+        cls_emb_preds_list: List[torch.Tensor], 
+        mask_preds_list: List[torch.Tensor],
+        gt_labels_list: List[torch.Tensor], 
+        gt_masks_list: List[torch.Tensor], 
+        caption_noun_emb_list: List[torch.Tensor],
+        img_metas: List[Dict],
+        ) -> Tuple[Union[torch.Tensor, int]]:
         """Computes classification and mask targets for all images for a decoder layer.
 
         Args:
@@ -299,18 +307,31 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             gt_labels_list: Ground truth class indices for all images. Each with shape (n, ), n is the sum of number of stuff type and number of instance in a image.
                 The index in this list ranges from [0, 1, ..., #known class - 1] that stores the label index from the original data. There is no background class here!
             gt_masks_list: Ground truth mask for each image, each with shape (n, h, w).
+            unmasked_noun_emb_list: A list of unmasked noun embeddings. 1 item is for 1 sample, each item has a shape of (N_caption_nouns, embed_dim)
             img_metas: List of image meta information.
 
         Returns:
             labels_list: Labels of all images, shape (batch_size, num_queries).
             label_weights_list: Label weights of all images, shape (batch_size, num_queries).
             mask_targets_list: Mask targets of all images, shape (batch_size, num_queries, h, w).
-            mask_weights_list: Mask weights of all images, shape (batch_size, num_querie ).
+            mask_weights_list: Mask weights of all images, shape (batch_size, num_queries).
+                We use items in this list to manipulates the importance of the queries. Queries assigned by the Hungarian matching 
+                with the groundtruth masks have the weights of 1. Queries assigned by the Hungarian matching to novel noun embeddings
+                without masks have weights of 0. This behavior is important to avoid the downstream class embedding loss to modify the representation
+                power of queries matched to novel noun embeddings.
             num_total_pos: Number of positive samples in all images, shape.
             num_total_neg: Number of negative samples in all images, shape.
         """ 
         (labels_list, label_weights_list, mask_targets_list, mask_weights_list, pos_inds_list, neg_inds_list) = multi_apply(
-            self._get_target_single_image, cls_scores_list, cls_emb_preds_list, mask_preds_list, gt_labels_list, gt_masks_list, img_metas)
+            self._get_target_single_image, 
+            cls_scores_list, 
+            cls_emb_preds_list, 
+            mask_preds_list, 
+            gt_labels_list, 
+            gt_masks_list, 
+            caption_noun_emb_list, 
+            img_metas
+        )
         return (
             torch.stack(labels_list, dim=0), 
             torch.stack(label_weights_list, dim=0), 
@@ -321,22 +342,31 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         )
 
     def _get_target_single_image(self, cls_score: torch.Tensor, cls_emb_pred: torch.Tensor, mask_pred: torch.Tensor,
-                        gt_labels: torch.Tensor, gt_masks: torch.Tensor, img_metas: Dict) -> Tuple[torch.Tensor]:
+                        gt_labels: torch.Tensor, gt_masks: torch.Tensor, caption_noun_emb: torch.Tensor, img_metas: Dict) -> Tuple[torch.Tensor]:
         """Compute classification and mask targets for one image.
 
         Args:
             cls_score: Mask score logits from a single decoder layer for one image. Shape (num_queries, cls_out_channels).
-            cls_emb_pred: Embedding prediction logit for a single decoder layer for one image with shape (num_queries, cls_out_channels).
+            cls_emb_pred: Embedding prediction of all queries for a single decoder layer for one image with shape (num_queries, embd_dim).
             mask_pred: Mask logits for a single decoder layer for one image. Shape (num_queries, h, w).
             gt_labels: Ground truth class indices for one image with shape (num_gts, ).
             gt_masks: Ground truth mask for each image, each with shape (num_gts, h, w).  
+            caption_noun_emb: The caption noun embeddings of shape (num caption nouns, embd_dim)
             img_metas: Image information.
 
         Returns:
             labels: Labels of each image of shape (num_queries, ).
-            label_weights: Label weights of each image of shape (num_queries, ).
+            label_weights: Label weights of each image of shape (num_queries,).  We use items in this list to manipulates the importance of the queries. 
+                Queries assigned by the Hungarian matching with the to foreground classes have the weights of 1. Otherwise, it is assigned to 0. 
+                This is important to tell the model not to adjust the embeddings of queries that were matched to a novel caption noun emb when optimizing the 
+                class embedding loss of known classes. The behavior is
+                    Assign 1 to queries that were matched to a groundtruth class or a background class
+                    Assign 0 to queries that were matched to a novel class in the noun embeddings.
             mask_targets: Mask targets of each image of shape (num_queries, h, w).
-            mask_weights: Mask weights of each image of shape (num_queries, ).
+            mask_weights: Mask weights of each image of shape (num_queries, ). We use items in this list to manipulates the importance of the queries. 
+                Queries assigned by the Hungarian matching with the groundtruth masks have the weights of 1. Queries assigned by the Hungarian matching to 
+                novel noun embeddings without masks have weights of 0. This behavior is important to avoid the downstream class embedding loss to modify the 
+                representation power of queries matched to novel noun embeddings.
             pos_inds: Sampled positive indices for each image.
             neg_inds: Sampled negative indices for each image.
         """
@@ -350,7 +380,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             self.assigner.assign(
                 cls_score, 
                 cls_emb_pred=cls_emb_pred,
-                target_cls_emb=self.class_embs,
+                known_cls_emb=self.class_embs,
                 mask_pred=point_sample(mask_pred.unsqueeze(1), point_coords.repeat(num_queries, 1, 1)).squeeze(1),  # shape (num_queries, num_points)
                 gt_labels=gt_labels,
                 gt_mask=point_sample(gt_masks.unsqueeze(1).float(), point_coords.repeat(gt_labels.shape[0], 1, 1)).squeeze(1),  # shape (num_gts, num_points)
@@ -369,9 +399,23 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         mask_weights = mask_pred.new_zeros((self.num_queries, ))
         mask_weights[pos_inds] = 1.0
 
+        label_weights = gt_labels.new_ones((self.num_queries,))
+
+        # Avoid the class embedding loss/dice to update the the queries matched to novel classes by setting the label weights to 0.
+        novel_caption_noun_query_inds = self.assigner.find_novel_class_query_indices(
+            cls_emb_pred=cls_emb_pred,
+            known_cls_emb=self.class_embs,
+            caption_noun_emb=caption_noun_emb,
+            query_indices_to_avoid=pos_inds,
+        )
+        
+        if novel_caption_noun_query_inds is not None:
+            label_weights[novel_caption_noun_query_inds] = 0.0
+    
+        
         return (
             labels, 
-            gt_labels.new_ones((self.num_queries,)), 
+            label_weights, 
             gt_masks[sampling_result.pos_assigned_gt_inds], 
             mask_weights, 
             pos_inds, 
@@ -498,9 +542,10 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             [x for x in cls_scores], 
             [x for x in cls_emb_preds] if self.use_class_emb else [None] * cls_scores.size(0),
             [x for x in mask_preds],
-            gt_labels_list, 
-            gt_masks_list,
-            img_metas)
+            gt_labels_list=gt_labels_list, 
+            gt_masks_list=gt_masks_list,
+            caption_noun_emb_list=[noun_emb[mask.bool()] for noun_emb, mask in zip(gt_caption_avg_pooled_nouns_embs_list, gt_caption_avg_pooled_nouns_mask_list)],
+            img_metas=img_metas)
         
         # Classfication loss
         cls_scores = cls_scores.flatten(0, 1)
@@ -570,7 +615,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         loss_mask = self.loss_mask(mask_point_preds, mask_point_targets, avg_factor=num_total_masks * self.num_points)
 
         return loss_cls, loss_cls_emb, loss_grounding, loss_caption_generation, loss_mask, loss_dice 
-
+        
     def _get_cls_emb_logits_from_cls_emb_pred(self, cls_emb_preds: torch.Tensor) -> torch.Tensor:
         """Compute prediction logits for embedding predicion head. 
 
