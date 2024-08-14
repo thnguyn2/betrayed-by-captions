@@ -76,46 +76,46 @@ class GroundingLoss(nn.Module):
         usable_minibatch_mask = num_caption_nouns_per_image > 0
         num_usable_images = usable_minibatch_mask.sum()
         
-        if num_usable_images < self._MIN_NUM_IMAGES_FOR_GROUNDING_LOSS:
+        if num_usable_images < batch_size:
             return torch.tensor(0.0, device=gt_caption_noun_embs.device)
-        elif num_usable_images < batch_size:
-            gt_caption_noun_embs = gt_caption_noun_embs[usable_minibatch_mask]
-            gt_caption_noun_mask = gt_caption_noun_mask[usable_minibatch_mask]
-            cls_emb_pred = cls_emb_pred[usable_minibatch_mask]
+        # elif num_usable_images < batch_size:
+        #     gt_caption_noun_embs = gt_caption_noun_embs[usable_minibatch_mask]
+        #     gt_caption_noun_mask = gt_caption_noun_mask[usable_minibatch_mask]
+        #     cls_emb_pred = cls_emb_pred[usable_minibatch_mask]
+        else:
+            _, num_max_tokens = gt_caption_noun_mask.shape
+            num_tokens = gt_caption_noun_mask.sum(dim=1)  # batchsize
+
+            # we should compute the image-sentence distances for all image-sentence pairs 
+            # in the batch, rather than only matching ones. So, we replicate them BxB times.
+            cls_emb_pred = cls_emb_pred[None, :, :, :].repeat(num_usable_images, 1, 1, 1).reshape(num_usable_images**2, num_queries, d_l)   #[bv1, bv2,...bvB, bv1, bv2, ...]
+            gt_caption_noun_embs = gt_caption_noun_embs[:, None, :, :].repeat(1, num_usable_images, 1, 1).reshape(num_usable_images**2, num_max_tokens, d_l)  #[bl1, bl1,...bl1, bl2, bl2, ...]
+            gt_caption_noun_mask = gt_caption_noun_mask[:, None, :].repeat(1, num_usable_images, 1).reshape(num_usable_images**2, num_max_tokens)  #[bl1, bl1,...bl1, bl2, bl2, ...]
+            num_tokens = num_tokens[:, None].repeat(1, num_usable_images).reshape(num_usable_images**2)  # [#nouns1, #nnouns1, ....#nouns2, #nnouns2, ...]
+
+            local_similarity = torch.bmm(gt_caption_noun_embs, cls_emb_pred.transpose(1,2))  # (B**2, max_tokens. Nq), order [(bl1, bv1), (bl1, bv2), ... (bl1, bvB)), (bl2, bv1), (bl2, bv2)....]
+            # Each (bli, bvj) matrix has a dimension of (max_tokens, num_queries) that stores the similarity between all the noun embeddings in the image i and the object embeddings in the image j
+            local_similarity = local_similarity / temperature
+            # Attention of each noun tokens to different object queries.
+            attention_l2v = F.softmax(local_similarity, dim=2)
+            attention_l2v = attention_l2v * gt_caption_noun_mask[:, :, None]  # Not all the noun tokens are useful
             
-        _, num_max_tokens = gt_caption_noun_mask.shape
-        num_tokens = gt_caption_noun_mask.sum(dim=1)  # batchsize
-
-        # we should compute the image-sentence distances for all image-sentence pairs 
-        # in the batch, rather than only matching ones. So, we replicate them BxB times.
-        cls_emb_pred = cls_emb_pred[None, :, :, :].repeat(num_usable_images, 1, 1, 1).reshape(num_usable_images**2, num_queries, d_l)   #[bv1, bv2,...bvB, bv1, bv2, ...]
-        gt_caption_noun_embs = gt_caption_noun_embs[:, None, :, :].repeat(1, num_usable_images, 1, 1).reshape(num_usable_images**2, num_max_tokens, d_l)  #[bl1, bl1,...bl1, bl2, bl2, ...]
-        gt_caption_noun_mask = gt_caption_noun_mask[:, None, :].repeat(1, num_usable_images, 1).reshape(num_usable_images**2, num_max_tokens)  #[bl1, bl1,...bl1, bl2, bl2, ...]
-        num_tokens = num_tokens[:, None].repeat(1, num_usable_images).reshape(num_usable_images**2)  # [#nouns1, #nnouns1, ....#nouns2, #nnouns2, ...]
-
-        local_similarity = torch.bmm(gt_caption_noun_embs, cls_emb_pred.transpose(1,2))  # (B**2, max_tokens. Nq), order [(bl1, bv1), (bl1, bv2), ... (bl1, bvB)), (bl2, bv1), (bl2, bv2)....]
-        # Each (bli, bvj) matrix has a dimension of (max_tokens, num_queries) that stores the similarity between all the noun embeddings in the image i and the object embeddings in the image j
-        local_similarity = local_similarity / temperature
-        # Attention of each noun tokens to different object queries.
-        attention_l2v = F.softmax(local_similarity, dim=2)
-        attention_l2v = attention_l2v * gt_caption_noun_mask[:, :, None]  # Not all the noun tokens are useful
+            # This sum is in equation (1)
+            local_distance = -local_similarity / temperature
+            global_dist_l2v = (attention_l2v * local_distance).sum(dim=2).sum(dim=1) / num_tokens  # [B, B]
+            pw_cost_l2v = global_dist_l2v.reshape(num_usable_images, num_usable_images)  #[[(bl1, bv1), (bl1, bv2), ... (bl1, bvB))], [(bl2, bv1), (bl2, bv2)....]]
+            
+            attention_v2l = F.softmax(local_similarity, dim=1)
+            
+            global_dist_v2l = ((attention_v2l * local_distance).sum(dim=2).sum(dim=1) / num_queries)
+            pw_cost_v2l = global_dist_v2l.reshape(num_usable_images, num_usable_images)
         
-        # This sum is in equation (1)
-        local_distance = -local_similarity / temperature
-        global_dist_l2v = (attention_l2v * local_distance).sum(dim=2).sum(dim=1) / num_tokens  # [B, B]
-        pw_cost_l2v = global_dist_l2v.reshape(num_usable_images, num_usable_images)  #[[(bl1, bv1), (bl1, bv2), ... (bl1, bvB))], [(bl2, bv1), (bl2, bv2)....]]
-        
-        attention_v2l = F.softmax(local_similarity, dim=1)
-        
-        global_dist_v2l = ((attention_v2l * local_distance).sum(dim=2).sum(dim=1) / num_queries)
-        pw_cost_v2l = global_dist_v2l.reshape(num_usable_images, num_usable_images)
-    
-        return (
-            torch.diag(-torch.log_softmax(-pw_cost_l2v, dim=0)).mean() +  # Same minibatch vision, different minibatch language => Won't work when the minibatch captions
-            torch.diag(-torch.log_softmax(-pw_cost_l2v, dim=1)).mean() +  # Diffent minibatch vision, same minibatch language.
-            torch.diag(-torch.log_softmax(-pw_cost_v2l, dim=0)).mean() + 
-            torch.diag(-torch.log_softmax(-pw_cost_v2l, dim=1)).mean()
-        ) / 4
+            return (
+                torch.diag(-torch.log_softmax(-pw_cost_l2v, dim=0)).mean() +  # Same minibatch vision, different minibatch language => Won't work when the minibatch captions
+                torch.diag(-torch.log_softmax(-pw_cost_l2v, dim=1)).mean() +  # Diffent minibatch vision, same minibatch language.
+                torch.diag(-torch.log_softmax(-pw_cost_v2l, dim=0)).mean() + 
+                torch.diag(-torch.log_softmax(-pw_cost_v2l, dim=1)).mean()
+            ) / 4
 
         
 @LOSSES.register_module()
