@@ -230,10 +230,8 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             self.caption_generator = build_head(self.caption_generator_cfg)
             self._build_text_encoders(self.caption_gen_emb_type, normalize_word_embeddings=self.text_emb_norm)
         if self.learnable_temperature:
-            self.softmax_temperature = nn.Parameter(torch.tensor([self.softmax_temperature]), requires_grad=True)
-            
-        self.assigner.softmax_temperature = self.softmax_temperature
-
+            self.softmax_temperature = nn.Parameter(torch.tensor([self.softmax_temperature], dtype=torch.float32), requires_grad=True)
+        
     @property
     def unknown_cat_names(self) -> Set[str]:
         return self._unknown_cat_names
@@ -384,6 +382,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
                 mask_pred=point_sample(mask_pred.unsqueeze(1), point_coords.repeat(num_queries, 1, 1)).squeeze(1),  # shape (num_queries, num_points)
                 gt_labels=gt_labels,
                 gt_mask=point_sample(gt_masks.unsqueeze(1).float(), point_coords.repeat(gt_labels.shape[0], 1, 1)).squeeze(1),  # shape (num_gts, num_points)
+                softmax_temperature=self.softmax_temperature,
                 img_meta=img_metas,
             ), 
             mask_pred, 
@@ -407,12 +406,12 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             known_cls_emb=self.class_embs,
             caption_noun_emb=caption_noun_emb,
             query_indices_to_avoid=pos_inds,
+            softmax_temperature=self.softmax_temperature,
         )
         
         if novel_caption_noun_query_inds is not None:
             label_weights[novel_caption_noun_query_inds] = 0.0
     
-        
         return (
             labels, 
             label_weights, 

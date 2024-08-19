@@ -31,7 +31,6 @@ class MaskHungarianAssignerOpen(BaseAssigner):
         cls_cost (:obj:`mmcv.ConfigDict` | dict): Classification cost config.
         mask_cost (:obj:`mmcv.ConfigDict` | dict): Mask cost config.
         dice_cost (:obj:`mmcv.ConfigDict` | dict): Dice cost config.
-        softmax_temperature (optional): The softmax temperature to compute the class embedding logits. Defaults to 10.0.
     """
 
     _BACKGROUND_OBJECT_INDEX = 0
@@ -43,13 +42,12 @@ class MaskHungarianAssignerOpen(BaseAssigner):
                      type='FocalLossCost', weight=1.0, binary_input=True),
                  dice_cost=dict(type='DiceCost', weight=1.0),
                  cls_emb_cost=dict(type='ClassficationCost', weight=1.0),
-                 softmax_temperature: float = 10.0,
-                 ):
+                ):
         self.cls_cost = build_match_cost(cls_cost)
         self.mask_cost = build_match_cost(mask_cost)
         self.dice_cost = build_match_cost(dice_cost)
         self.cls_emb_cost = build_match_cost(cls_emb_cost)
-            
+           
     def assign(self,
                cls_pred: Optional[torch.Tensor],
                cls_emb_pred: torch.Tensor,
@@ -57,6 +55,7 @@ class MaskHungarianAssignerOpen(BaseAssigner):
                mask_pred: Optional[torch.Tensor],
                gt_labels: torch.Tensor,
                gt_mask: torch.Tensor,
+               softmax_temperature: float,
                img_meta: Dict,
                gt_bboxes_ignore=None,
                eps: Optional[float] = 1e-7) -> AssignResult:
@@ -71,6 +70,7 @@ class MaskHungarianAssignerOpen(BaseAssigner):
                 Here num_gt is the number of objects in the groundtruth image.
                 The labels of the mask is in the range of [0, 1, ... #known_class - 1]
             gt_mask: The (sampled) groundtruth mask in the shape of (num_queries, num_points).
+            softmax_temperature: The softmax temperature.
             img_meta: Meta information for current image.
             eps: A value added to the denominator for numerical stability. Default 1e-7.
 
@@ -106,7 +106,7 @@ class MaskHungarianAssignerOpen(BaseAssigner):
             cls_cost = 0
         
         if self.cls_emb_cost.weight != 0:
-            cls_emb_pred_logits = torch.matmul(cls_emb_pred, known_cls_emb.t()) / self.softmax_temperature if cls_emb_pred is not None else None
+            cls_emb_pred_logits = torch.matmul(cls_emb_pred, known_cls_emb.t()) / softmax_temperature if cls_emb_pred is not None else None
             # gt_labels has the range of [0, 1, ..., # known class - 1], no background clas.
             cls_emb_cost = self.cls_emb_cost(cls_emb_pred_logits, gt_labels)  # [N_query, num_gt]
         else:
@@ -147,6 +147,7 @@ class MaskHungarianAssignerOpen(BaseAssigner):
         known_cls_emb: torch.Tensor,
         caption_noun_emb: torch.Tensor,
         query_indices_to_avoid: torch.Tensor,
+        softmax_temperature: float,
     ) -> Optional[torch.Tensor]:
         """Computes one-to-one matching for each novel caption noun embeddings to the query.
 
@@ -154,6 +155,8 @@ class MaskHungarianAssignerOpen(BaseAssigner):
             cls_emb_pred: Predicted class embedding in shape (num_query, emb_dim) from a single layer of a single image.
             known_cls_emb: The target class embeddings of shape (N_cls, emb_dim) of the known classes
             caption_noun_emb: The caption noun embeddings of shape (num caption nouns, embd_dim)
+            query_indices_to_avoid: The index of the query to avoid
+            softmax_temperature: The softmax temperature.
             
         Returns:
             A list of query indices that were matched to novel noun embeddings
@@ -163,7 +166,7 @@ class MaskHungarianAssignerOpen(BaseAssigner):
         if novel_noun_emb.size(0) == 0:
             return None
         else:
-            query_emb_pred_logits = torch.matmul(cls_emb_pred, novel_noun_emb.t()) / self.softmax_temperature if cls_emb_pred is not None else None
+            query_emb_pred_logits = torch.matmul(cls_emb_pred, novel_noun_emb.t()) / softmax_temperature if cls_emb_pred is not None else None
             cost = -query_emb_pred_logits.detach().cpu()
             cost[query_indices_to_avoid] = _LARGE_COST_VAL
             return linear_sum_assignment(cost)[0]

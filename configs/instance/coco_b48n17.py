@@ -152,6 +152,7 @@ model = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         softmax_temperature=10,
+        learnable_temperature=True,
         pred_emb_norm=False,
         text_emb_norm=True,
         caption_emb_type='bert',
@@ -308,7 +309,7 @@ lr_config = dict(
     warmup_ratio=1.0,  # no warmup
     warmup_iters=10)
 
-max_epochs = 12
+max_epochs = 24
 runner = dict(type='EpochBasedRunner', max_epochs=max_epochs)
 
 log_config = dict(
