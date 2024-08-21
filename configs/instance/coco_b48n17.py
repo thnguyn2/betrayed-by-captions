@@ -152,7 +152,6 @@ model = dict(
         known_file=known_file,
         unknown_file=unknown_file,
         softmax_temperature=10,
-        learnable_temperature=True,
         pred_emb_norm=False,
         text_emb_norm=True,
         caption_emb_type='bert',

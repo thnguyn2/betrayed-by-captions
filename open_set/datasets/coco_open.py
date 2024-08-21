@@ -17,6 +17,7 @@ import time
 from typing import Dict
 import mmcv
 import numpy as np
+import nltk
 from mmcv.utils import print_log
 from terminaltables import AsciiTable
 from typing import List, Set, Tuple
@@ -92,7 +93,7 @@ class CocoDatasetOpen(CustomDataset):
                 eval_types=[],
                 ann_sample_rate=1.0,
                 max_ann_per_image=100,
-                nouns_parser='lvis',
+                nouns_parser='obj_nouns_adj',
                 use_reduced_size_dataset: bool=False,
                 class_to_emb_file=None,
                 ):
@@ -135,6 +136,9 @@ class CocoDatasetOpen(CustomDataset):
         elif nouns_parser == 'nouns_adj':
             self.parser = NLTKParser(allowed_tags=['NN', 'NNS', 'JJ', 'JJR', 'JJS'])
         elif nouns_parser == 'obj_nouns_adj':
+            nltk.download('punkt')
+            nltk.download('stopwords')
+            nltk.download('averaged_perceptron_tagger')
             self.parser = LVISParser(add_adj=True)
         elif nouns_parser == 'imagenet':
             self.parser = ImageNet21KParser()
@@ -422,7 +426,7 @@ class CocoDatasetOpen(CustomDataset):
             
             if enable_debug:
                 #if len(set(caption_noun_sentence.split(" ")).intersection({"giraffe", "handbag", "surfboard", "skis", "broccoli", "donut", "toothbrush", "frisbee", "toaster", "skateboard", "snowboard"})) > 0:
-                if len(set(caption_noun_sentence.split(" ")).intersection({"elephant"})) > 0:
+                if len(set(caption_noun_sentence.split(" ")).intersection({"room"})) > 0:
                     print(f"caption_nouns = {caption_noun_sentence}, caption = {caption_str}")
                     print(f"caption_nouns_ids = {caption_nouns_ids}")
                     print(f"token_noun_indices = {token_noun_indices}")
