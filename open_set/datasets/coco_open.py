@@ -93,7 +93,7 @@ class CocoDatasetOpen(CustomDataset):
                 eval_types=[],
                 ann_sample_rate=1.0,
                 max_ann_per_image=100,
-                nouns_parser='obj_nouns_adj',
+                nouns_parser='lvis',
                 use_reduced_size_dataset: bool=False,
                 class_to_emb_file=None,
                 ):
@@ -264,14 +264,19 @@ class CocoDatasetOpen(CustomDataset):
             print(f"Can't get annotation info with idx = {idx}, datainfo = {data_info}, ann_info = {ann_info}")
         return out_info
     
-    def _extract_nouns_from_caption(self, caption: str) -> List[str]:
+    def _extract_nouns_from_caption(self, caption: str, filter_valid_nouns: bool=True) -> List[str]:
         """Returns a set of nouns in the caption."""
         unique_nns = []
         nns, _ = self.parser.parse(caption)
         unique_nns.extend(nns)
         unique_nns = list(set(unique_nns))
+        if filter_valid_nouns:
+            unique_nns = self._filter_valid_nouns(unique_nns)
         return unique_nns
 
+    def _filter_valid_nouns(self, unique_nns: List[str]) -> List[str]:
+        return [x for x in unique_nns if x in self.CLASSES] 
+        
     def get_cat_ids(self, idx: int) -> List[int]:
         """Get COCO category ids by index.
 
@@ -426,7 +431,9 @@ class CocoDatasetOpen(CustomDataset):
             
             if enable_debug:
                 #if len(set(caption_noun_sentence.split(" ")).intersection({"giraffe", "handbag", "surfboard", "skis", "broccoli", "donut", "toothbrush", "frisbee", "toaster", "skateboard", "snowboard"})) > 0:
-                if len(set(caption_noun_sentence.split(" ")).intersection({"room"})) > 0:
+                diff_set = set(caption_noun_sentence.split(" ")).difference(set(self.CLASSES))
+                if len(diff_set) > 0:
+                    print(f"Found non-zero difference set {diff_set}!")
                     print(f"caption_nouns = {caption_noun_sentence}, caption = {caption_str}")
                     print(f"caption_nouns_ids = {caption_nouns_ids}")
                     print(f"token_noun_indices = {token_noun_indices}")
