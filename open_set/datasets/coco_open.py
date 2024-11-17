@@ -264,7 +264,7 @@ class CocoDatasetOpen(CustomDataset):
             print(f"Can't get annotation info with idx = {idx}, datainfo = {data_info}, ann_info = {ann_info}")
         return out_info
     
-    def _extract_nouns_from_caption(self, caption: str, filter_valid_nouns: bool=True) -> List[str]:
+    def _extract_nouns_from_caption(self, caption: str, filter_valid_nouns: bool=False) -> List[str]:
         """Returns a set of nouns in the caption."""
         unique_nns = []
         nns, _ = self.parser.parse(caption)
