@@ -312,7 +312,7 @@ max_epochs = 24
 runner = dict(type='EpochBasedRunner', max_epochs=max_epochs)
 
 log_config = dict(
-    interval=500,
+    interval=500,  # steps
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)

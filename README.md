@@ -86,6 +86,7 @@ We conduct extensive experiments on the COCO dataset with two settings: Open Voc
   pip install spacy
   python3 -m spacy download en_core_web_sm
   pip install yapf==0.40.1  # Avoid https://github.com/open-mmlab/mmdetection/issues/10962 
+  pip install --force-reinstall -v "numpy==1.25.2"  # Avoid https://stackoverflow.com/questions/78681145/pytorch-userwarning-failed-to-initialize-numpy-array-api-not-found-and-bertmo
 
   conda install cudatoolkit=11.7 -c pytorch
   pip install https://download.pytorch.org/whl/cu117/torch-2.0.1%2Bcu117-cp310-cp310-linux_x86_64.whl
@@ -170,7 +171,7 @@ We provide a [jupyter notebook](./notebooks/inference.ipynb) for inferencing our
 </tbody>
 </table>
 
-For the COCO dataset, we use the 2017 version images and annotations. Please download train2017 and val2017 images. For annotatoins, we use `captions_train2017.json`, `instances_train/test2017.json`, and `panoptic_train/val2017.json`.
+For the COCO dataset, we use the 2017 version images and annotations. Please download train2017 and val2017 images. For annotatoins, we use `captions_train2017.json`, `instances_train/test2017.json`, and `panoptic_train/val2017.json`. Please see the instruction [here](https://github.com/facebookresearch/detectron2/blob/main/datasets/README.md) to prepare the dataset for the pan-topics.
 
 For the evaluation on ADE20K dataset, we use the MIT Scene Parsing Benchmark validation set, which contains 100 classes. Please download the converted COCO-format annotation file form [here]() and put it in the `annotations` folder.
 
