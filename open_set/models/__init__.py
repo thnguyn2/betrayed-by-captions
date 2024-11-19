@@ -6,3 +6,4 @@ from .losses.cross_entropy_loss import CrossEntropyLossOpen
 from .losses.grounding_loss import GroundingLoss
 from .transformers import *
 from .heads import *
+from .mask2former_head_with_llm import Mask2FormerHeadOpenWithLLM

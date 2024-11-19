@@ -516,14 +516,14 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         """Loss function for outputs from a single decoder layer.
 
         Args:
-            cls_scores: Mask score logits from a single decoderlayer for all images. Shape (batch_size, num_queries, cls_out_channels). 
+            cls_scores: Mask score logits from a single decoderlayer for all images. Shape (B * Nq, cls_out_channels). 
                 Note `cls_out_channels` should includes background.
-            cls_emb_preds: Embedding prediction for a single decoder layer for all images with shape (batch_size, num_queries, d_l).
+            cls_emb_preds: Embedding prediction for a single decoder layer for all images with shape (B, Nq, d_l).
                 d_l is the dimension of embeddings.
-            mask_preds: Mask logits for a pixel decoder for all images. Shape (batch_size, num_queries, h, w).
-            gt_labels_list: Ground truth class indices for each image, each with shape (num_gts, ).
-            gt_masks_list: Ground truth mask for each image, each with shape (num_gts, h, w).
-            gt_caption_ids_list: (max_token,)
+            mask_preds: Mask logits for a pixel decoder for all images. Shape (B, Nq, h, w).
+            gt_labels_list: A list of length B of the ground truth class indices for each image, each with shape (num_gts, ).
+            gt_masks_list: A list of length B of ground truth mask for each image, each with shape (num_gts, h, w).
+            gt_caption_ids_list: A list of length B of caption ids. Each has length of (max_token,)
             gt_caption_avg_pooled_nouns_embs_list: (max_token, d_l)
             gt_caption_avg_pooled_nouns_mask_list: (max_token,)
             img_metas: List of image meta information.
@@ -547,10 +547,10 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             img_metas=img_metas)
         
         # Classfication loss
-        cls_scores = cls_scores.flatten(0, 1)
-        labels = labels.flatten(0, 1)  # (batch_size * num_queries, )
-        label_weights = label_weights.flatten(0, 1)  # (batch_size * num_queries, )
-        class_weight = cls_scores.new_tensor(self.class_weight)  # (batch_size * num_queries, )
+        cls_scores = cls_scores.flatten(0, 1)  # (B * Nq, N_cls)
+        labels = labels.flatten(0, 1)  # (B * Nq, )
+        label_weights = label_weights.flatten(0, 1)  # (B * Nq, )
+        class_weight = cls_scores.new_tensor(self.class_weight)  # (B * Nq, )
         loss_cls = self._loss_cls(cls_scores, labels, label_weights, avg_factor=class_weight[labels].sum())
 
         # Embedding prediction loss
