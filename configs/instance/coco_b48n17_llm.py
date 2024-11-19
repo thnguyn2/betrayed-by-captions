@@ -99,12 +99,12 @@ model = dict(
                                  'ffn', 'norm')),
             init_cfg=None),
         caption_generator=dict(
-            type='ObjectCaptioner',
-            num_queries=100,
+            type='ObjectCaptioner',  
             object_embedding_dim=768,
-            obj_desc_max_length=35,
+            max_seq_length=35,
+            obj_desc_max_length=8,
             embedder_model_id="bert-base-uncased",
-            num_descriptor_llm_layers=3,
+            num_decoder_layers=3,
         ),
         loss_cls=dict(
             type='CrossEntropyLoss',
@@ -236,8 +236,8 @@ dataset_type = 'CocoDatasetOpen'
 data_root = '/jupyter-users-home/tan-2enguyen/datasets/detectron2/coco/'
 data = dict(
     _delete_=True,
-    samples_per_gpu=2,
-    workers_per_gpu=2,
+    samples_per_gpu=8,
+    workers_per_gpu=8,
     train=dict(
         type=dataset_type,
         ann_file=data_root + 'annotations/instances_train2017.json',
@@ -309,7 +309,7 @@ max_epochs = 24
 runner = dict(type='EpochBasedRunner', max_epochs=max_epochs)
 
 log_config = dict(
-    interval=2,  # steps
+    interval=5,  # steps
     hooks=[
         dict(type='TextLoggerHook', by_epoch=False),
         dict(type='TensorboardLoggerHook', by_epoch=False)

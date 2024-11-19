@@ -261,6 +261,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
             emb_type: The type of embedding to use.
         """
         if emb_type in ('pubmed-bert', 'bert') and self.bert_embeddings is None:
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained(BERT_MODEL_BY_EMBEDDING_TYPES[emb_type])
             self.bert_embeddings = BertEmbeddings(
                 bert_model=transformers.AutoModel.from_pretrained(BERT_MODEL_BY_EMBEDDING_TYPES[emb_type]).eval(),
             )
@@ -270,6 +271,7 @@ class Mask2FormerHeadOpen(MaskFormerHead):
         if emb_type == 'clip' and self.clip is None:
             # clip_model, _ = clip.load('ViT-B/32')
             clip_model, _ = clip.load('RN50')
+            self.tokenizer = None
             self.clip = clip_model.eval()
             for param in self.clip.parameters():
                 param.requires_grad = False

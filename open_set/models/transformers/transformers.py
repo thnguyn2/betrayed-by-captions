@@ -258,12 +258,23 @@ class TransformerDecoder(nn.Module):
             self.decoders.append(blk)
     
     def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None, memory_key_padding_mask=None):
-        lng = len(memory) - 1 
-        fnl = ft.reduce(
-            lambda acc,crr: acc + [crr[1](acc[-1], memory, tgt_mask, memory_mask, tgt_key_padding_mask, memory_key_padding_mask)],
-            enumerate(self.decoders),
-            [tgt]
-        )
+        # fnl = ft.reduce(
+        #     lambda acc,crr: acc + [crr[1](acc[-1], memory, tgt_mask, memory_mask, tgt_key_padding_mask, memory_key_padding_mask)], enumerate(self.decoders),
+        #     [tgt]
+        # )
+        
+        # See https://docs.python.org/3/library/functools.html#functools.reduce
+        # First step: fnl = [tgt]
+        # Second step: 
+        #   acc = [tgt]
+        #   crr = DecoderBlock[0]
+        #   Output: [tgt] + [DecoderBlock[0](tgt, memory, tgt_mask, memory_mask, tgt_key_padding_mask, memory_key_padding_mask)]
+        # Third step:
+        #   acc = [tgt, DecoderBlock[0](tgt, memory, tgt_mask, memory_mask, tgt_key_padding_mask, memory_key_padding_mask)]
+        #   crr = DecoderBlock[1]
+        #   Output: acc + [DecoderBlock[1](acc[-1], memory, tgt_mask, memory_mask, tgt_key_padding_mask, memory_key_padding_mask)]
+        func = lambda acc,dec: acc + [dec(acc[-1], memory, tgt_mask, memory_mask, tgt_key_padding_mask, memory_key_padding_mask)]
+        fnl = ft.reduce(func, self.decoders, [tgt])  # The 3rd argument is the initial value of the accumulator.
         return fnl[1:]  # ignore tgt
 
 class Transformer(nn.Module):    
